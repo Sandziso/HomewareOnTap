@@ -1,0 +1,62 @@
+# PHP / Composer
+/vendor/
+/composer.lock
+
+# Node
+/node_modules/
+
+# Environment files
+.env
+.env.*
+
+# SQL dumps
+*.sql
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+
+# Build / cache
+.cache/
+.sass-cache/
+
+# PHPUnit
+.phpunit.result.cache
+
+# Misc
+*.sqlite
+*.sqlite3
+
+# Ignore uploads or large media if you don't want them in git
+public/uploads/
+assets/uploads/
+
+# Composer vendor if in include path
+includes/vendor/
+
+# Ignore npm debug files
+npm-debug.log*
+
+# Ignore PHPStorm project files
+*.iml
+
+# Ignore local config
+config.local.php
+
+# Lockfiles you may want to track (comment out if desired)
+# package-lock.json
+# yarn.lock
+# composer.lock

@@ -1,0 +1,43 @@
+# Enable RewriteEngine for pretty URLs
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Serve existing files or directories directly
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Route everything else to index.php (for clean URLs)
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# Default index file
+DirectoryIndex index.php
+
+# Prevent directory listing
+Options -Indexes
+
+# Block access to hidden files (like .env, .git, .htaccess)
+<FilesMatch "^\.">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+# Block sensitive files
+<FilesMatch "(^config\.php$|^database\.php$|^composer\.json$|^composer\.lock$|^\.env$)">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+# Security headers
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+</IfModule>
+
+# Optional: Allow access to test scripts like test_db_raw.php
+<Files "test_db_raw.php">
+    Order allow,deny
+    Allow from all
+</Files>

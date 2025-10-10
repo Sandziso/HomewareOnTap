@@ -1,0 +1,56 @@
+User-agent: *
+Crawl-delay: 1
+
+# Allow all pages (we'll explicitly disallow what we don't want crawled)
+Allow: /
+
+# Disallow administrative sections
+Disallow: /admin/
+Disallow: /includes/
+Disallow: /lib/
+Disallow: /system/
+Disallow: /vendor/
+
+# Disallow user account pages (to avoid duplicate content)
+Disallow: /account/
+Disallow: /auth/
+Disallow: /checkout/
+Disallow: /cart/
+
+# Disallow search queries and filters
+Disallow: /*?*
+Disallow: /*&*
+Disallow: /shop?*
+Disallow: /*sort=
+Disallow: /*filter=
+
+# Disallow technical files
+Disallow: /composer.json
+Disallow: /composer.lock
+Disallow: /.env
+Disallow: /*.sql
+Disallow: /*.log
+
+# Allow image and asset crawling for search engines
+Allow: /assets/img/
+Allow: /assets/uploads/products/
+
+# Sitemap location
+Sitemap: https://www.homewareontap.com/sitemap.xml
+
+# Specific instructions for major search engines
+User-agent: Googlebot
+Allow: /assets/css/
+Allow: /assets/js/
+Crawl-delay: 1
+
+User-agent: Googlebot-Image
+Allow: /assets/img/
+Allow: /assets/uploads/products/
+Crawl-delay: 1
+
+User-agent: Bingbot
+Crawl-delay: 1
+
+User-agent: Yandex
+Crawl-delay: 2

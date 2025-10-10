@@ -1,0 +1,6 @@
+/* Quicksand font CSS */
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;700&display=swap');
+
+.quicksand {
+  font-family: 'Quicksand', sans-serif;
+}

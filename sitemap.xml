@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemap.org/schemas/sitemap/0.9">
+    <sitemap>
+        <loc>https://www.homewareontap.com/sitemap-pages.xml</loc>
+        <lastmod>2023-11-15</lastmod>
+    </sitemap>
+    <sitemap>
+        <loc>https://www.homewareontap.com/sitemap-products.xml</loc>
+        <lastmod>2023-11-15</lastmod>
+    </sitemap>
+    <sitemap>
+        <loc>https://www.homewareontap.com/sitemap-categories.xml</loc>
+        <lastmod>2023-11-15</lastmod>
+    </sitemap>
+</sitemapindex>
