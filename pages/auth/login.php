@@ -3,9 +3,25 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
+// Start session securely
+if (session_status() === PHP_SESSION_NONE) {
+    session_start([
+        'cookie_httponly' => true,
+        'cookie_secure' => isset($_SERVER['HTTPS']),
+        'cookie_samesite' => 'Strict'
+    ]);
+}
+
 require_once '../../includes/config.php';
 require_once '../../includes/auth.php'; // Include auth functions
 require_once '../../includes/functions.php';
+
+// Security headers
+header("X-Frame-Options: DENY");
+header("X-Content-Type-Options: nosniff");
+header("X-XSS-Protection: 1; mode=block");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://code.jquery.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:;");
 
 // Clear any previous login email from session
 if (isset($_SESSION['login_email'])) {
@@ -15,6 +31,22 @@ if (isset($_SESSION['login_email'])) {
 // Generate CSRF token if not exists
 if (!isset($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// Rate limiting - prevent brute force attacks
+$rate_limit_key = 'login_attempts_' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+if (!isset($_SESSION[$rate_limit_key])) {
+    $_SESSION[$rate_limit_key] = ['count' => 0, 'last_attempt' => time()];
+}
+
+// Check if rate limited
+$attempts = $_SESSION[$rate_limit_key];
+if ($attempts['count'] >= 5 && (time() - $attempts['last_attempt']) < 900) { // 5 attempts in 15 minutes
+    $remaining_time = 900 - (time() - $attempts['last_attempt']);
+    $_SESSION['error'] = "Too many login attempts. Please try again in " . ceil($remaining_time / 60) . " minutes.";
+} elseif ($attempts['count'] >= 5) {
+    // Reset counter after 15 minutes
+    $_SESSION[$rate_limit_key] = ['count' => 0, 'last_attempt' => time()];
 }
 ?>
 <!DOCTYPE html>
@@ -571,6 +603,17 @@ if (!isset($_SESSION['csrf_token'])) {
             color: var(--primary);
             font-weight: 600;
         }
+
+        /* Rate limiting warning */
+        .rate-limit-warning {
+            background: var(--warning);
+            color: var(--dark);
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 1rem;
+            text-align: center;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -670,6 +713,15 @@ if (!isset($_SESSION['csrf_token'])) {
                     </div>
                     
                     <div class="login-body">
+                        <!-- Rate limiting warning -->
+                        <?php if (isset($_SESSION['error']) && strpos($_SESSION['error'], 'Too many login attempts') !== false): ?>
+                            <div class="rate-limit-warning">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <?php echo $_SESSION['error']; ?>
+                            </div>
+                            <?php unset($_SESSION['error']); ?>
+                        <?php endif; ?>
+
                         <!-- Messages will be displayed here -->
                         <?php if (isset($_SESSION['message'])): ?>
                             <div class="alert alert-<?php echo $_SESSION['message_type'] ?? 'info'; ?> alert-dismissible fade show" role="alert">
@@ -696,7 +748,8 @@ if (!isset($_SESSION['csrf_token'])) {
                                 <div class="form-group floating-label">
                                     <input type="email" class="form-control" id="email" name="email" 
                                            value="<?php echo isset($_SESSION['form_data']['email']) ? htmlspecialchars($_SESSION['form_data']['email']) : (isset($_COOKIE['remembered_email']) ? htmlspecialchars($_COOKIE['remembered_email']) : ''); ?>" 
-                                           placeholder=" " required>
+                                           placeholder=" " required 
+                                           <?php echo (isset($attempts) && $attempts['count'] >= 5 && (time() - $attempts['last_attempt']) < 900) ? 'disabled' : ''; ?>>
                                     <label for="email">Email Address *</label>
                                     <div class="invalid-feedback">Please provide a valid email address</div>
                                 </div>
@@ -704,7 +757,8 @@ if (!isset($_SESSION['csrf_token'])) {
                             
                             <div class="mb-4">
                                 <div class="form-group floating-label">
-                                    <input type="password" class="form-control" id="password" name="password" placeholder=" " required>
+                                    <input type="password" class="form-control" id="password" name="password" placeholder=" " required 
+                                           <?php echo (isset($attempts) && $attempts['count'] >= 5 && (time() - $attempts['last_attempt']) < 900) ? 'disabled' : ''; ?>>
                                     <span class="password-toggle" id="passwordToggle"><i class="bi bi-eye"></i></span>
                                     <label for="password">Password *</label>
                                     <div class="invalid-feedback">Please enter your password</div>
@@ -713,7 +767,8 @@ if (!isset($_SESSION['csrf_token'])) {
                             
                             <div class="mb-4 d-flex justify-content-between align-items-center">
                                 <div class="form-check">
-                                    <input type="checkbox" class="form-check-input" id="remember_me" name="remember_me" <?php echo (isset($_COOKIE['remembered_email']) || isset($_SESSION['form_data']['remember_me'])) ? 'checked' : ''; ?>>
+                                    <input type="checkbox" class="form-check-input" id="remember_me" name="remember_me" <?php echo (isset($_COOKIE['remembered_email']) || isset($_SESSION['form_data']['remember_me'])) ? 'checked' : ''; ?>
+                                           <?php echo (isset($attempts) && $attempts['count'] >= 5 && (time() - $attempts['last_attempt']) < 900) ? 'disabled' : ''; ?>>
                                     <label class="form-check-label" for="remember_me">
                                         Remember me
                                     </label>
@@ -721,7 +776,10 @@ if (!isset($_SESSION['csrf_token'])) {
                                 <a href="<?php echo SITE_URL; ?>/pages/auth/forgot-password.php" class="text-decoration-none small text-muted">Forgot password?</a>
                             </div>
                             
-                            <button type="submit" class="btn btn-primary mb-4" id="loginButton">Login</button>
+                            <button type="submit" class="btn btn-primary mb-4" id="loginButton" 
+                                    <?php echo (isset($attempts) && $attempts['count'] >= 5 && (time() - $attempts['last_attempt']) < 900) ? 'disabled' : ''; ?>>
+                                Login
+                            </button>
                             
                             <div class="register-link">
                                 <p class="text-center mb-0">Don't have an account? <a href="<?php echo SITE_URL; ?>/pages/auth/register.php">Create one</a></p>

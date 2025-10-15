@@ -36,22 +36,7 @@ if (!function_exists('getUserByEmail')) {
     }
 }
 
-/**
- * Get user by ID
- */
-if (!function_exists('getUserById')) {
-    function getUserById($id) {
-        global $pdo;
-        try {
-            $stmt = $pdo->prepare("SELECT * FROM users WHERE id = :id LIMIT 1");
-            $stmt->execute(['id' => $id]);
-            return $stmt->fetch(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
-            error_log("Database error in getUserById: " . $e->getMessage());
-            return false;
-        }
-    }
-}
+// REMOVED: getUserById() function - It's now in functions.php
 
 /**
  * Set user session after successful login
@@ -117,14 +102,7 @@ if (!function_exists('isLoggedIn')) {
     }
 }
 
-/**
- * Check if admin is logged in
- */
-if (!function_exists('isAdminLoggedIn')) {
-    function isAdminLoggedIn() {
-        return isLoggedIn() && isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin';
-    }
-}
+// REMOVED: isAdminLoggedIn() function - It's now in functions.php
 
 /**
  * Logout user
@@ -188,7 +166,16 @@ if (!function_exists('loginWithRememberToken')) {
 
         try {
             list($user_id, $token) = explode('|', $cookie);
-            $user = getUserById($user_id);
+            
+            // Use the getUserById from functions.php
+            if (function_exists('getUserById')) {
+                $user = getUserById($user_id, $pdo);
+            } else {
+                // Fallback if functions.php isn't loaded
+                $stmt = $pdo->prepare("SELECT * FROM users WHERE id = :id LIMIT 1");
+                $stmt->execute(['id' => $user_id]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            }
 
             if ($user && isset($user['remember_token']) && hash_equals($user['remember_token'], $token)) {
                 // Check if user is active

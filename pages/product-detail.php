@@ -114,6 +114,90 @@ function getRatingDistribution($pdo, $product_id) {
 
 // Get rating distribution
 $rating_distribution = getRatingDistribution($pdo, $product_id);
+
+// Function to get product image URL with fallback - UPDATED VERSION
+function getProductImageUrl($product) {
+    $base_url = SITE_URL;
+    $image_filename = $product['image']; // Use the full filename from the database
+    
+    if (!empty($image_filename)) {
+        // Remove file extension for matching with actual files
+        $base_name = pathinfo($image_filename, PATHINFO_FILENAME);
+        
+        // Define possible extensions to check
+        $possible_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        
+        // Check both directories with various extensions
+        $directories = [
+            '/assets/img/products/primary/',
+            '/assets/img/products/'
+        ];
+        
+        foreach ($directories as $directory) {
+            foreach ($possible_extensions as $ext) {
+                $test_path = $directory . $base_name . $ext;
+                $full_test_path = $_SERVER['DOCUMENT_ROOT'] . $test_path;
+                
+                if (file_exists($full_test_path)) {
+                    return $base_url . $test_path;
+                }
+            }
+        }
+        
+        // Special case mappings for specific product images
+        $special_mappings = [
+            'elyra_wine_glasses' => 'elyra_wine_glasse',
+            'ribbed_champagne_flutes' => 'ribbed_champagne_fluies',
+            'ribbed_highball_glass' => 'high_ball_video',
+            'clarity_mug' => 'clarity_mug',
+            'honey_jar' => 'honey_jar',
+            'stone_milling_pot' => 'stone_milling_pot',
+            'straw_set' => 'straw_set'
+        ];
+        
+        if (isset($special_mappings[$base_name])) {
+            $mapped_name = $special_mappings[$base_name];
+            foreach ($directories as $directory) {
+                foreach ($possible_extensions as $ext) {
+                    $test_path = $directory . $mapped_name . $ext;
+                    $full_test_path = $_SERVER['DOCUMENT_ROOT'] . $test_path;
+                    
+                    if (file_exists($full_test_path)) {
+                        return $base_url . $test_path;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Return default image if no product image exists or found
+    $default_paths = [
+        '/assets/img/products/primary/default_product.jpg',
+        '/assets/img/products/primary/default_product.png',
+        '/assets/img/products/default_product.jpg',
+        '/assets/img/products/default_product.png',
+        '/assets/img/products/primary/placeholder.jpg',
+        '/assets/img/products/placeholder.jpg'
+    ];
+    
+    foreach ($default_paths as $default_path) {
+        $full_default_path = $_SERVER['DOCUMENT_ROOT'] . $default_path;
+        if (file_exists($full_default_path)) {
+            return $base_url . $default_path;
+        }
+    }
+    
+    // Ultimate fallback
+    return $base_url . '/assets/img/products/primary/placeholder.jpg';
+}
+
+// Get current page URL for social sharing
+$current_url = urlencode((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]");
+$share_title = urlencode($product['name']);
+$share_description = urlencode(substr($product['description'] ?? 'Premium homeware product', 0, 100));
+
+// Check if user is logged in
+$is_logged_in = $sessionManager->isLoggedIn();
 ?>
 
 <!DOCTYPE html>
@@ -123,24 +207,23 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
     
-    <!-- Google Web Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
     
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     
-    <!-- Custom CSS -->
     <style>
         :root {
             --primary: #A67B5B;
+            --primary-dark: #8B6145;
             --secondary: #F2E8D5;
             --light: #F9F5F0;
             --dark: #3A3229;
+            --success: #28a745;
+            --danger: #dc3545;
         }
         
         body {
@@ -162,8 +245,8 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
         }
         
         .btn-primary:hover {
-            background-color: #8B6145;
-            border-color: #8B6145;
+            background-color: var(--primary-dark);
+            border-color: var(--primary-dark);
         }
         
         .btn-outline {
@@ -194,47 +277,27 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
         }
         
         .main-image {
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
-            margin-bottom: 15px;
-            height: 400px;
+            margin-bottom: 20px;
+            height: 500px;
             display: flex;
             align-items: center;
             justify-content: center;
             background-color: var(--light);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            border: 1px solid #eee;
         }
         
         .main-image img {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
+            transition: transform 0.3s ease;
         }
         
-        .thumbnails {
-            display: flex;
-            gap: 10px;
-        }
-        
-        .thumbnail {
-            width: 80px;
-            height: 80px;
-            border-radius: 4px;
-            overflow: hidden;
-            cursor: pointer;
-            border: 2px solid transparent;
-            opacity: 0.7;
-            transition: all 0.3s ease;
-        }
-        
-        .thumbnail:hover, .thumbnail.active {
-            opacity: 1;
-            border-color: var(--primary);
-        }
-        
-        .thumbnail img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+        .main-image:hover img {
+            transform: scale(1.05);
         }
         
         .product-info {
@@ -266,7 +329,7 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
         }
         
         .discount-badge {
-            background-color: #ff6b6b;
+            background-color: var(--danger);
             color: white;
             padding: 3px 8px;
             border-radius: 4px;
@@ -310,7 +373,7 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
         }
         
         .in-stock {
-            color: #28a745;
+            color: var(--success);
         }
         
         .low-stock {
@@ -318,7 +381,7 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
         }
         
         .out-of-stock {
-            color: #dc3545;
+            color: var(--danger);
         }
         
         .quantity-selector {
@@ -356,39 +419,54 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
         }
         
         .btn-add-cart {
-            flex: 2;
             background-color: var(--primary);
             color: white;
             border: none;
-            padding: 12px;
-            border-radius: 4px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            flex: 1;
+            transition: all 0.3s ease;
             font-weight: 600;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            transition: background-color 0.3s;
         }
         
         .btn-add-cart:hover {
-            background-color: #8B6145;
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(166, 123, 91, 0.3);
+        }
+        
+        .btn-add-cart:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .btn-add-cart.added {
+            background-color: var(--success);
         }
         
         .btn-wishlist {
-            flex: 1;
-            border: 1px solid #ddd;
-            background-color: white;
-            border-radius: 4px;
+            width: 48px;
+            height: 48px;
             display: flex;
-            align-items: center;
             justify-content: center;
-            color: #777;
-            transition: all 0.3s;
+            align-items: center;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            background: white;
+            color: #6c757d;
+            transition: all 0.3s ease;
         }
         
         .btn-wishlist:hover, .btn-wishlist.active {
             color: #e74c3c;
             border-color: #e74c3c;
+            background: #fff6f6;
+            transform: scale(1.05);
         }
         
         .product-tabs {
@@ -471,69 +549,90 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
         }
         
         .product-card {
-            border: 1px solid #eee;
-            border-radius: 8px;
+            border: none;
+            border-radius: 16px;
             overflow: hidden;
-            transition: transform 0.3s, box-shadow 0.3s;
+            transition: all 0.3s ease;
             height: 100%;
+            background: white;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
         }
         
         .product-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            transform: translateY(-8px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
         }
         
         .product-image {
-            height: 200px;
+            height: 240px;
             overflow: hidden;
+            position: relative;
+            background: var(--light);
         }
         
         .product-image img {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transition: transform 0.5s;
+            transition: transform 0.5s ease;
         }
         
         .product-card:hover .product-image img {
-            transform: scale(1.05);
+            transform: scale(1.1);
         }
         
         .product-badge {
             position: absolute;
-            top: 10px;
-            left: 10px;
+            top: 12px;
+            left: 12px;
             background-color: var(--primary);
             color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 500;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            z-index: 2;
+        }
+        
+        .product-badge.sale {
+            background-color: var(--danger);
+        }
+        
+        .product-badge.new {
+            background-color: var(--success);
+        }
+        
+        .product-badge.out-of-stock {
+            background-color: #6c757d;
         }
         
         .product-info-card {
-            padding: 15px;
+            padding: 24px;
         }
         
         .product-title-card {
-            font-size: 16px;
+            font-size: 1.1rem;
             font-weight: 600;
-            margin-bottom: 10px;
-            height: 50px;
+            margin-bottom: 12px;
+            height: 52px;
             overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            color: var(--dark);
         }
         
         .product-price-card {
             font-weight: 700;
             color: var(--primary);
-            font-size: 18px;
-            margin-bottom: 10px;
+            font-size: 1.25rem;
+            margin-bottom: 12px;
         }
         
         .product-actions {
             display: flex;
-            justify-content: space-between;
-            margin-top: 15px;
+            gap: 10px;
+            margin-top: 16px;
         }
         
         /* Toast positioning */
@@ -569,11 +668,85 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
             to { transform: rotate(360deg); }
         }
         
+        /* Social Share Buttons */
+        .share-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background-color: #f8f9fa;
+            color: var(--dark);
+            text-decoration: none;
+            transition: all 0.3s ease;
+            border: 1px solid #dee2e6;
+        }
+        
+        .share-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .share-btn.facebook:hover {
+            background-color: #1877f2;
+            color: white;
+            border-color: #1877f2;
+        }
+        
+        .share-btn.twitter:hover {
+            background-color: #1da1f2;
+            color: white;
+            border-color: #1da1f2;
+        }
+        
+        .share-btn.pinterest:hover {
+            background-color: #e60023;
+            color: white;
+            border-color: #e60023;
+        }
+        
+        .share-btn.whatsapp:hover {
+            background-color: #25d366;
+            color: white;
+            border-color: #25d366;
+        }
+        
+        /* Guest-specific styles */
+        .guest-notice {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .guest-notice a {
+            color: white;
+            text-decoration: underline;
+            font-weight: 600;
+        }
+        
+        .guest-notice a:hover {
+            color: var(--secondary);
+        }
+        
         /* Responsive styles */
         @media (max-width: 992px) {
             .product-info {
                 padding-left: 0;
                 margin-top: 30px;
+            }
+            
+            .main-image {
+                height: 400px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .main-image {
+                height: 350px;
             }
         }
         
@@ -585,25 +758,31 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
             .product-title {
                 font-size: 24px;
             }
+            
+            .main-image {
+                height: 300px;
+            }
         }
     </style>
 </head>
 <body>
-    <!-- Loading overlay -->
     <div class="loading-overlay">
         <div class="spinner"></div>
     </div>
 
-    <!-- Toast Container -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1090;"></div>
 
-    <!-- Header -->
     <?php include __DIR__ . '/../includes/header.php'; ?>
 
-    <!-- Main Content -->
     <main class="py-5">
         <div class="container">
-            <!-- Breadcrumb -->
+            <?php if (!$is_logged_in): ?>
+            <div class="guest-notice">
+                <i class="fas fa-info-circle me-2"></i>
+                Shopping as guest? <a href="<?php echo SITE_URL; ?>/pages/auth/login.php?redirect=product-detail&id=<?php echo $product_id; ?>">Login</a> or <a href="<?php echo SITE_URL; ?>/pages/auth/register.php">Register</a> to save your cart and access exclusive features!
+            </div>
+            <?php endif; ?>
+
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="index.php">Home</a></li>
@@ -614,48 +793,23 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
             </nav>
             
             <div class="row">
-                <!-- Product Gallery -->
                 <div class="col-lg-6">
                     <div class="product-gallery">
                         <div class="main-image">
-                            <img src="../assets/img/products/<?php echo !empty($product['image']) ? htmlspecialchars($product['image']) : 'default-product.jpg'; ?>" 
+                            <img src="<?php echo getProductImageUrl($product); ?>" 
                                  alt="<?php echo htmlspecialchars($product['name']); ?>" 
                                  id="mainProductImage"
-                                 onerror="this.src='../assets/img/products/default-product.jpg'">
-                        </div>
-                        
-                        <div class="thumbnails">
-                            <!-- Main image thumbnail -->
-                            <div class="thumbnail active" data-image="../assets/img/products/<?php echo !empty($product['image']) ? htmlspecialchars($product['image']) : 'default-product.jpg'; ?>">
-                                <img src="../assets/img/products/<?php echo !empty($product['image']) ? htmlspecialchars($product['image']) : 'default-product.jpg'; ?>" 
-                                     alt="Thumbnail 1"
-                                     onerror="this.src='../assets/img/products/default-product.jpg'">
-                            </div>
-                            
-                            <!-- Additional thumbnails (could be fetched from database in a real application) -->
-                            <div class="thumbnail" data-image="https://via.placeholder.com/600x600/F9F5F0/A67B5B?text=Alternative+View">
-                                <img src="https://via.placeholder.com/100x100/F9F5F0/A67B5B?text=2" alt="Thumbnail 2">
-                            </div>
-                            <div class="thumbnail" data-image="https://via.placeholder.com/600x600/F9F5F0/A67B5B?text=Close+Up+View">
-                                <img src="https://via.placeholder.com/100x100/F9F5F0/A67B5B?text=3" alt="Thumbnail 3">
-                            </div>
-                            <div class="thumbnail" data-image="https://via.placeholder.com/600x600/F9F5F0/A67B5B?text=In+Use">
-                                <img src="https://via.placeholder.com/100x100/F9F5F0/A67B5B?text=4" alt="Thumbnail 4">
-                            </div>
+                                 onerror="this.onerror=null; this.src='<?php echo SITE_URL; ?>/assets/img/products/primary/default_product.jpg'">
                         </div>
                     </div>
                 </div>
                 
-                <!-- Product Info -->
                 <div class="col-lg-6">
                     <div class="product-info">
                         <h1 class="product-title"><?php echo htmlspecialchars($product['name']); ?></h1>
                         
                         <div class="product-price">
                             <span class="current-price">R <?php echo number_format($product['price'], 2); ?></span>
-                            <!-- You could add discount logic here if needed -->
-                            <!-- <span class="old-price">R 1,199.99</span>
-                            <span class="discount-badge">25% OFF</span> -->
                         </div>
                         
                         <div class="product-rating">
@@ -701,27 +855,47 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
                         </div>
                         
                         <div class="action-buttons">
-                            <button class="btn-add-cart" id="addToCartBtn" <?php echo $product['stock_quantity'] == 0 ? 'disabled' : ''; ?>>
-                                <i class="fas fa-shopping-cart"></i> 
+                            <button class="btn-add-cart" id="addToCartBtn" data-product-id="<?php echo $product_id; ?>" data-stock="<?php echo $product['stock_quantity']; ?>"
+                                <?php echo $product['stock_quantity'] == 0 ? 'disabled' : ''; ?>>
+                                <i class="fas fa-shopping-cart me-2"></i> 
                                 <?php echo $product['stock_quantity'] == 0 ? 'Out of Stock' : 'Add to Cart'; ?>
                             </button>
-                            <button class="btn-wishlist" id="wishlistBtn">
+                            <button class="btn-wishlist" id="wishlistBtn" data-product-id="<?php echo $product_id; ?>">
                                 <i class="far fa-heart"></i>
                             </button>
                         </div>
                         
-                        <div class="product-share">
+                        <div class="product-share mt-4">
                             <span class="fw-bold me-2">Share:</span>
-                            <a href="#" class="text-dark me-2"><i class="fab fa-facebook-f"></i></a>
-                            <a href="#" class="text-dark me-2"><i class="fab fa-twitter"></i></a>
-                            <a href="#" class="text-dark me-2"><i class="fab fa-pinterest"></i></a>
-                            <a href="#" class="text-dark"><i class="fab fa-whatsapp"></i></a>
+                            <a href="https://www.facebook.com/sharer/sharer.php?u=<?php echo $current_url; ?>&quote=<?php echo $share_title; ?>" 
+                               target="_blank" 
+                               class="share-btn facebook me-2"
+                               title="Share on Facebook">
+                                <i class="fab fa-facebook-f"></i>
+                            </a>
+                            <a href="https://twitter.com/intent/tweet?text=<?php echo $share_title; ?>&url=<?php echo $current_url; ?>" 
+                               target="_blank" 
+                               class="share-btn twitter me-2"
+                               title="Share on Twitter">
+                                <i class="fab fa-twitter"></i>
+                            </a>
+                            <a href="https://pinterest.com/pin/create/button/?url=<?php echo $current_url; ?>&media=<?php echo getProductImageUrl($product); ?>&description=<?php echo $share_title; ?>" 
+                               target="_blank" 
+                               class="share-btn pinterest me-2"
+                               title="Share on Pinterest">
+                                <i class="fab fa-pinterest"></i>
+                            </a>
+                            <a href="https://wa.me/?text=<?php echo $share_title . ' - ' . $current_url; ?>" 
+                               target="_blank" 
+                               class="share-btn whatsapp"
+                               title="Share on WhatsApp">
+                                <i class="fab fa-whatsapp"></i>
+                            </a>
                         </div>
                     </div>
                 </div>
             </div>
             
-            <!-- Product Tabs -->
             <div class="product-tabs">
                 <ul class="nav nav-tabs" id="productTabs" role="tablist">
                     <li class="nav-item" role="presentation">
@@ -739,14 +913,6 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
                     <div class="tab-pane fade show active" id="description" role="tabpanel">
                         <h4>Product Description</h4>
                         <p><?php echo nl2br(htmlspecialchars($product['description'] ?? 'No description available.')); ?></p>
-                        
-                        <!-- You could add more structured description content here if needed -->
-                        <!-- <h5>Features & Benefits:</h5>
-                        <ul>
-                            <li><strong>Premium Quality:</strong> Made from high-grade materials that are built to last</li>
-                            <li><strong>Versatile Design:</strong> Modern style that complements any decor</li>
-                            <li><strong>Everyday Practicality:</strong> Designed for daily use and convenience</li>
-                        </ul> -->
                     </div>
                     
                     <div class="tab-pane fade" id="specifications" role="tabpanel">
@@ -855,7 +1021,6 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
                 </div>
             </div>
             
-            <!-- Related Products -->
             <?php if (count($related_products) > 0): ?>
             <div class="related-products">
                 <h2 class="section-title">You May Also Like</h2>
@@ -867,14 +1032,14 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
                             <div class="product-card">
                                 <div class="product-image position-relative">
                                     <a href="product-detail.php?id=<?php echo $related_product['id']; ?>">
-                                        <img src="../assets/img/products/<?php echo !empty($related_product['image']) ? htmlspecialchars($related_product['image']) : 'default-product.jpg'; ?>" 
+                                        <img src="<?php echo getProductImageUrl($related_product); ?>" 
                                              alt="<?php echo htmlspecialchars($related_product['name']); ?>"
-                                             onerror="this.src='../assets/img/products/default-product.jpg'">
+                                             onerror="this.onerror=null; this.src='<?php echo SITE_URL; ?>/assets/img/products/primary/default_product.jpg'">
                                     </a>
                                     <?php 
                                     $days_old = (time() - strtotime($related_product['created_at'])) / (60 * 60 * 24);
                                     if ($days_old < 30): ?>
-                                    <span class="product-badge">New</span>
+                                    <span class="product-badge new">New</span>
                                     <?php endif; ?>
                                 </div>
                                 <div class="product-info-card">
@@ -891,8 +1056,14 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
                                         <span class="ms-1">(<?php echo getReviewCount($pdo, $related_product['id']); ?>)</span>
                                     </div>
                                     <div class="product-actions">
-                                        <button class="btn-add-cart" onclick="addToCart(<?php echo $related_product['id']; ?>, 1, this)">Add to Cart</button>
-                                        <button class="btn-wishlist" onclick="toggleWishlist(<?php echo $related_product['id']; ?>, this)"><i class="far fa-heart"></i></button>
+                                        <button class="btn-add-cart" data-product-id="<?php echo $related_product['id']; ?>" data-stock="<?php echo $related_product['stock_quantity']; ?>"
+                                                <?php echo $related_product['stock_quantity'] == 0 ? 'disabled' : ''; ?>>
+                                            <i class="fas fa-shopping-cart me-2"></i> 
+                                            <?php echo $related_product['stock_quantity'] == 0 ? 'Out of Stock' : 'Add to Cart'; ?>
+                                        </button>
+                                        <button class="btn-wishlist" data-product-id="<?php echo $related_product['id']; ?>">
+                                            <i class="far fa-heart"></i>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -905,23 +1076,20 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
         </div>
     </main>
 
-    <!-- Footer -->
     <?php include __DIR__ . '/../includes/footer.php'; ?>
 
-    <!-- Bootstrap & jQuery JS -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
+        // Constants
+        const CART_CONTROLLER_URL = '<?php echo SITE_URL; ?>/system/controllers/CartController.php';
+        const WISHLIST_CONTROLLER_URL = '<?php echo SITE_URL; ?>/system/controllers/WishlistController.php';
+        const IS_LOGGED_IN = <?php echo $is_logged_in ? 'true' : 'false'; ?>;
+
         $(document).ready(function() {
-            // Thumbnail gallery functionality
-            $('.thumbnail').on('click', function() {
-                $('.thumbnail').removeClass('active');
-                $(this).addClass('active');
-                
-                const newImageUrl = $(this).data('image');
-                $('#mainProductImage').attr('src', newImageUrl);
-            });
+            // Initialize cart count
+            updateCartCount();
             
             // Quantity selector functionality
             $('#increaseQty').on('click', function() {
@@ -944,96 +1112,220 @@ $rating_distribution = getRatingDistribution($pdo, $product_id);
             
             // Wishlist toggle
             $('#wishlistBtn').on('click', function() {
-                const productId = <?php echo $product_id; ?>;
+                const productId = $(this).data('product-id');
                 toggleWishlist(productId, this);
             });
             
             // Add to cart functionality
             $('#addToCartBtn').on('click', function() {
-                const productId = <?php echo $product_id; ?>;
+                const productId = $(this).data('product-id');
                 const quantity = $('#productQty').val();
                 
                 addToCart(productId, quantity, this);
             });
+
+            // Related products - Add to cart and wishlist
+            $('.related-products .btn-add-cart').on('click', function() {
+                const productId = $(this).data('product-id');
+                const quantity = 1;
+                addToCart(productId, quantity, this);
+            });
+
+            $('.related-products .btn-wishlist').on('click', function() {
+                const productId = $(this).data('product-id');
+                toggleWishlist(productId, this);
+            });
+
+            // Social share button enhancements
+            $('.share-btn').on('click', function(e) {
+                // Open in a smaller popup window for better UX
+                e.preventDefault();
+                const url = this.href;
+                const windowName = 'shareWindow';
+                const windowFeatures = 'width=600,height=400,menubar=no,toolbar=no,resizable=yes,scrollbars=yes';
+                window.open(url, windowName, windowFeatures);
+            });
         });
         
-        // Toggle wishlist function
-        function toggleWishlist(productId, element) {
-            $.ajax({
-                url: '../system/controllers/WishlistController.php',
-                type: 'POST',
-                data: {
-                    action: 'toggle_wishlist',
-                    product_id: productId
-                },
-                success: function(response) {
-                    try {
-                        const result = JSON.parse(response);
-                        const heartIcon = $(element).find('i');
-                        
-                        if (result.success) {
-                            if (result.action === 'added') {
-                                heartIcon.removeClass('far').addClass('fas');
-                                $(element).addClass('active');
-                                showToast('Added to wishlist!', 'success');
-                            } else {
-                                heartIcon.removeClass('fas').addClass('far');
-                                $(element).removeClass('active');
-                                showToast('Removed from wishlist', 'info');
-                            }
-                        } else {
-                            showToast(result.message || 'Please login to manage wishlist', 'error');
-                        }
-                    } catch (e) {
-                        showToast('Error processing response', 'error');
-                    }
-                },
-                error: function() {
-                    showToast('Network error. Please try again.', 'error');
-                }
-            });
+        // Show login required message
+        function showLoginRequired() {
+            showToast('Please login to use wishlist features', 'warning');
+            setTimeout(() => {
+                window.location.href = '<?php echo SITE_URL; ?>/pages/auth/login.php?redirect=product-detail&id=<?php echo $product_id; ?>';
+            }, 2000);
         }
         
-        // Add to cart function
-        function addToCart(productId, quantity, element) {
-            $('.loading-overlay').fadeIn();
+        // Toggle wishlist function
+        async function toggleWishlist(productId, element) {
+            if (!IS_LOGGED_IN) {
+                showLoginRequired();
+                return;
+            }
+
+            const heartIcon = $(element).find('i');
+            const originalClass = heartIcon.attr('class');
             
-            $.ajax({
-                url: '../system/controllers/CartController.php',
-                type: 'POST',
-                data: {
+            // Show loading state
+            heartIcon.removeClass('far fas').addClass('fas fa-spinner fa-spin');
+            $(element).prop('disabled', true);
+            
+            try {
+                const formData = new URLSearchParams({
+                    action: 'toggle_wishlist',
+                    product_id: productId
+                });
+                
+                const response = await fetch(WISHLIST_CONTROLLER_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: formData
+                });
+                
+                const responseText = await response.text();
+                console.log('Wishlist response:', responseText);
+                
+                // Check for HTML response (PHP errors)
+                if (responseText.trim().startsWith('<!') || responseText.trim().startsWith('<')) {
+                    throw new Error('Server returned HTML instead of JSON. Check for PHP errors.');
+                }
+                
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                } catch (parseError) {
+                    console.error('Wishlist JSON parse error:', parseError);
+                    throw new Error('Invalid JSON response from server');
+                }
+                
+                if (result.success) {
+                    if (result.action === 'added') {
+                        heartIcon.removeClass('fa-spinner fa-spin').addClass('fas fa-heart');
+                        $(element).addClass('active');
+                        showToast('Added to wishlist!', 'success');
+                    } else {
+                        heartIcon.removeClass('fa-spinner fa-spin').addClass('far fa-heart');
+                        $(element).removeClass('active');
+                        showToast('Removed from wishlist', 'info');
+                    }
+                } else {
+                    throw new Error(result.message || 'Failed to update wishlist');
+                }
+                
+            } catch (error) {
+                // Revert to original state on error
+                heartIcon.attr('class', originalClass);
+                console.error('Wishlist error:', error);
+                showToast(error.message || 'Network error. Please try again.', 'error');
+            } finally {
+                $(element).prop('disabled', false);
+            }
+        }
+        
+        // Enhanced addToCart function
+        async function addToCart(productId, quantity, element) {
+            const originalText = element.innerHTML;
+            
+            // Show loading state
+            element.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Adding...';
+            element.disabled = true;
+            $(element).removeClass('btn-primary').removeClass('btn-outline-primary');
+            
+            try {
+                const formData = new URLSearchParams({
                     action: 'add_to_cart',
                     product_id: productId,
                     quantity: quantity
+                });
+                
+                const response = await fetch(CART_CONTROLLER_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: formData
+                });
+                
+                const responseText = await response.text();
+                console.log('Raw response:', responseText);
+                
+                // Check if response is HTML (starts with <) - indicates PHP error
+                if (responseText.trim().startsWith('<!') || responseText.trim().startsWith('<')) {
+                    throw new Error('Server returned HTML instead of JSON. Check for PHP errors.');
+                }
+                
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                } catch (parseError) {
+                    console.error('JSON parse error:', parseError);
+                    console.error('Response that failed to parse:', responseText.substring(0, 200));
+                    throw new Error('Invalid JSON response from server');
+                }
+                
+                if (result.success) {
+                    // Success state
+                    element.innerHTML = '<i class="fas fa-check me-2"></i> Added!';
+                    $(element).addClass('btn-success');
+                    
+                    updateCartCount();
+                    showToast('Product added to cart!', 'success');
+                    
+                    // Revert after 2 seconds
+                    setTimeout(() => {
+                        element.innerHTML = originalText;
+                        $(element).removeClass('btn-success');
+                        
+                        // Restore original button class
+                        $(element).addClass('btn-primary');
+                        element.disabled = false;
+                    }, 2000);
+                    
+                } else {
+                    throw new Error(result.message || 'Failed to add product to cart');
+                }
+                
+            } catch (error) {
+                // Restore original state and show error
+                element.innerHTML = originalText;
+                element.disabled = false;
+                $(element).addClass('btn-primary');
+                
+                console.error('Add to cart error:', error);
+                showToast(error.message || 'Network error. Please try again.', 'error');
+            }
+        }
+        
+        // ENHANCED updateCartCount function
+        function updateCartCount() {
+            console.log('🛒 Updating cart count...');
+            
+            $.ajax({
+                url: CART_CONTROLLER_URL,
+                type: 'POST',
+                data: {
+                    action: 'get_cart_count'
                 },
                 success: function(response) {
-                    $('.loading-overlay').fadeOut();
+                    console.log('Cart count response:', response);
+                    
                     try {
                         const result = JSON.parse(response);
                         if (result.success) {
-                            // Update button state
-                            if (element) {
-                                $(element).addClass('added');
-                                $(element).html('<i class="fas fa-check me-2"></i> Added');
-                                
-                                setTimeout(function() {
-                                    $(element).removeClass('added');
-                                    $(element).html('<i class="fas fa-shopping-cart me-2"></i> Add to Cart');
-                                }, 2000);
-                            }
-                            
-                            // Show success message
-                            showToast('Product added to cart successfully!', 'success');
+                            // UPDATE ALL CART COUNT ELEMENTS ON THE PAGE
+                            $('.cart-count').text(result.cart_count); 
+                            console.log('✅ Cart count updated to:', result.cart_count);
                         } else {
-                            showToast(result.message || 'Failed to add product to cart', 'error');
+                            console.error('❌ Cart count error:', result.message);
                         }
                     } catch (e) {
-                        showToast('Error processing response', 'error');
+                        console.error('❌ JSON parse error:', e);
+                        console.log('Raw response:', response);
                     }
                 },
-                error: function() {
-                    $('.loading-overlay').fadeOut();
-                    showToast('Network error. Please try again.', 'error');
+                error: function(xhr, status, error) {
+                    console.error('❌ AJAX error updating cart count:', error);
                 }
             });
         }

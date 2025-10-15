@@ -13,8 +13,7 @@ if (!isAdminLoggedIn()) {
 }
 
 // Get database connection
-$database = new Database();
-$pdo = $database->getConnection();
+$pdo = getDBConnection();
 
 if (!$pdo) {
     die("Database connection failed");
@@ -22,7 +21,7 @@ if (!$pdo) {
 
 // Set default date range (current month)
 $startDate = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
-$endDate = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
+$endDate = isset($_GET['end_date']) ? $_GET['endDate'] : date('Y-m-t');
 
 // Validate dates
 if (!validateDate($startDate) || !validateDate($endDate)) {
@@ -40,6 +39,8 @@ $salesData = getSalesReportData($pdo, $startDate, $endDate);
 $topProducts = getTopProducts($pdo, $startDate, $endDate, 5);
 $salesByCategory = getSalesByCategory($pdo, $startDate, $endDate);
 $salesTrends = getSalesTrends($pdo, $startDate, $endDate);
+$paymentMethodsData = getSalesByPaymentMethod($pdo, $startDate, $endDate);
+$customerMetrics = getCustomerMetrics($pdo, $startDate, $endDate);
 
 // Function to get sales report data
 function getSalesReportData($pdo, $startDate, $endDate) {
@@ -51,10 +52,16 @@ function getSalesReportData($pdo, $startDate, $endDate) {
                 AVG(total_amount) as avg_order_value,
                 MIN(total_amount) as min_order_value,
                 MAX(total_amount) as max_order_value,
-                COUNT(DISTINCT user_id) as unique_customers
+                COUNT(DISTINCT user_id) as unique_customers,
+                SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END) as completed_revenue,
+                SUM(CASE WHEN status = 'pending' THEN total_amount ELSE 0 END) as pending_revenue,
+                SUM(CASE WHEN status = 'cancelled' THEN total_amount ELSE 0 END) as cancelled_revenue,
+                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_orders,
+                COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_orders,
+                COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_orders
             FROM orders 
             WHERE created_at BETWEEN ? AND ? 
-            AND status NOT IN ('cancelled', 'refunded')
+            AND status NOT IN ('refunded')
         ");
         $stmt->execute([$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
         return $stmt->fetch();
@@ -66,7 +73,13 @@ function getSalesReportData($pdo, $startDate, $endDate) {
             'avg_order_value' => 0,
             'min_order_value' => 0,
             'max_order_value' => 0,
-            'unique_customers' => 0
+            'unique_customers' => 0,
+            'completed_revenue' => 0,
+            'pending_revenue' => 0,
+            'cancelled_revenue' => 0,
+            'completed_orders' => 0,
+            'pending_orders' => 0,
+            'cancelled_orders' => 0
         ];
     }
 }
@@ -78,8 +91,10 @@ function getTopProducts($pdo, $startDate, $endDate, $limit = 5) {
             SELECT 
                 p.name,
                 p.sku,
+                p.image,
                 SUM(oi.quantity) as total_sold,
-                SUM(oi.product_price * oi.quantity) as total_revenue
+                SUM(oi.product_price * oi.quantity) as total_revenue,
+                AVG(oi.product_price) as avg_price
             FROM order_items oi
             JOIN orders o ON oi.order_id = o.id
             JOIN products p ON oi.product_id = p.id
@@ -103,9 +118,11 @@ function getSalesByCategory($pdo, $startDate, $endDate) {
         $stmt = $pdo->prepare("
             SELECT 
                 c.name as category_name,
+                c.id as category_id,
                 COUNT(DISTINCT o.id) as order_count,
                 SUM(oi.quantity) as total_quantity,
-                SUM(oi.product_price * oi.quantity) as total_revenue
+                SUM(oi.product_price * oi.quantity) as total_revenue,
+                AVG(oi.product_price) as avg_product_price
             FROM order_items oi
             JOIN orders o ON oi.order_id = o.id
             JOIN products p ON oi.product_id = p.id
@@ -130,7 +147,9 @@ function getSalesTrends($pdo, $startDate, $endDate) {
             SELECT 
                 DATE(created_at) as sale_date,
                 COUNT(*) as order_count,
-                SUM(total_amount) as daily_revenue
+                SUM(total_amount) as daily_revenue,
+                AVG(total_amount) as avg_order_value,
+                COUNT(DISTINCT user_id) as daily_customers
             FROM orders
             WHERE created_at BETWEEN ? AND ? 
             AND status NOT IN ('cancelled', 'refunded')
@@ -142,6 +161,127 @@ function getSalesTrends($pdo, $startDate, $endDate) {
     } catch (PDOException $e) {
         error_log("Error fetching sales trends: " . $e->getMessage());
         return [];
+    }
+}
+
+// New function: Get sales by payment method
+function getSalesByPaymentMethod($pdo, $startDate, $endDate) {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT 
+                payment_method,
+                COUNT(*) as order_count,
+                SUM(total_amount) as total_revenue,
+                AVG(total_amount) as avg_order_value
+            FROM orders
+            WHERE created_at BETWEEN ? AND ? 
+            AND status NOT IN ('cancelled', 'refunded')
+            GROUP BY payment_method
+            ORDER BY total_revenue DESC
+        ");
+        $stmt->execute([$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+        return $stmt->fetchAll();
+    } catch (PDOException $e) {
+        error_log("Error fetching payment method data: " . $e->getMessage());
+        return [];
+    }
+}
+
+// New function: Get customer metrics
+function getCustomerMetrics($pdo, $startDate, $endDate) {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT 
+                COUNT(DISTINCT user_id) as total_customers,
+                COUNT(DISTINCT CASE WHEN o.created_at BETWEEN DATE_SUB(?, INTERVAL 30 DAY) AND ? THEN user_id END) as returning_customers,
+                COUNT(DISTINCT CASE WHEN o.created_at = (SELECT MIN(created_at) FROM orders o2 WHERE o2.user_id = o.user_id) THEN user_id END) as new_customers
+            FROM orders o
+            WHERE o.created_at BETWEEN ? AND ? 
+            AND o.status NOT IN ('cancelled', 'refunded')
+        ");
+        $stmt->execute([$startDate . ' 00:00:00', $endDate . ' 23:59:59', $startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+        return $stmt->fetch();
+    } catch (PDOException $e) {
+        error_log("Error fetching customer metrics: " . $e->getMessage());
+        return ['total_customers' => 0, 'returning_customers' => 0, 'new_customers' => 0];
+    }
+}
+
+// New function: Export to CSV
+function exportSalesToCSV($pdo, $startDate, $endDate) {
+    try {
+        // Get all the data we need
+        $salesData = getSalesReportData($pdo, $startDate, $endDate);
+        $trends = getSalesTrends($pdo, $startDate, $endDate);
+        $topProducts = getTopProducts($pdo, $startDate, $endDate, 100); // Get all products for export
+        
+        // Set headers for CSV download
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="sales_report_' . $startDate . '_to_' . $endDate . '.csv"');
+        
+        $output = fopen('php://output', 'w');
+        
+        // Add BOM for UTF-8
+        fputs($output, $bom = (chr(0xEF) . chr(0xBB) . chr(0xBF)));
+        
+        // Report header
+        fputcsv($output, ['HomewareOnTap Sales Report']);
+        fputcsv($output, ['Period:', $startDate . ' to ' . $endDate]);
+        fputcsv($output, ['Generated:', date('Y-m-d H:i:s')]);
+        fputcsv($output, []);
+        
+        // Summary section
+        fputcsv($output, ['SUMMARY']);
+        fputcsv($output, ['Total Orders', $salesData['total_orders']]);
+        fputcsv($output, ['Total Revenue', 'R' . number_format($salesData['total_revenue'], 2)]);
+        fputcsv($output, ['Average Order Value', 'R' . number_format($salesData['avg_order_value'], 2)]);
+        fputcsv($output, ['Unique Customers', $salesData['unique_customers']]);
+        fputcsv($output, ['Completed Orders', $salesData['completed_orders']]);
+        fputcsv($output, ['Pending Orders', $salesData['pending_orders']]);
+        fputcsv($output, []);
+        
+        // Daily trends
+        fputcsv($output, ['DAILY SALES TRENDS']);
+        fputcsv($output, ['Date', 'Orders', 'Revenue', 'Average Order Value', 'Unique Customers']);
+        foreach ($trends as $trend) {
+            fputcsv($output, [
+                $trend['sale_date'],
+                $trend['order_count'],
+                'R' . number_format($trend['daily_revenue'], 2),
+                'R' . number_format($trend['avg_order_value'], 2),
+                $trend['daily_customers']
+            ]);
+        }
+        fputcsv($output, []);
+        
+        // Top products
+        fputcsv($output, ['TOP PRODUCTS']);
+        fputcsv($output, ['Product Name', 'SKU', 'Units Sold', 'Total Revenue', 'Average Price']);
+        foreach ($topProducts as $product) {
+            fputcsv($output, [
+                $product['name'],
+                $product['sku'],
+                $product['total_sold'],
+                'R' . number_format($product['total_revenue'], 2),
+                'R' . number_format($product['avg_price'], 2)
+            ]);
+        }
+        
+        fclose($output);
+        exit;
+        
+    } catch (Exception $e) {
+        error_log("CSV export error: " . $e->getMessage());
+        return false;
+    }
+}
+
+// Handle CSV export
+if (isset($_GET['export']) && $_GET['export'] == 'csv') {
+    if (exportSalesToCSV($pdo, $startDate, $endDate)) {
+        exit;
+    } else {
+        $exportError = "Failed to generate CSV export";
     }
 }
 
@@ -169,6 +309,7 @@ function validateDate($date, $format = 'Y-m-d') {
     
     <!-- DataTables CSS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
     
     <style>
         :root {
@@ -214,6 +355,16 @@ function validateDate($date, $format = 'Y-m-d') {
         .bg-warning-light {
             background-color: rgba(255, 193, 7, 0.15);
             color: #ffc107;
+        }
+        
+        .bg-danger-light {
+            background-color: rgba(220, 53, 69, 0.15);
+            color: #dc3545;
+        }
+        
+        .bg-purple-light {
+            background-color: rgba(102, 16, 242, 0.15);
+            color: #6610f2;
         }
         
         .btn-primary {
@@ -281,6 +432,30 @@ function validateDate($date, $format = 'Y-m-d') {
                 display: block;
             }
         }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .status-completed { background-color: #d4edda; color: #155724; }
+        .status-pending { background-color: #fff3cd; color: #856404; }
+        .status-cancelled { background-color: #f8d7da; color: #721c24; }
+        
+        .progress {
+            height: 8px;
+        }
+        
+        .metric-card {
+            border-left: 4px solid;
+        }
+        
+        .metric-primary { border-left-color: var(--primary); }
+        .metric-success { border-left-color: #28a745; }
+        .metric-info { border-left-color: #17a2b8; }
+        .metric-warning { border-left-color: #ffc107; }
     </style>
 </head>
 
@@ -317,22 +492,29 @@ function validateDate($date, $format = 'Y-m-d') {
         <!-- Sales Reports Content -->
         <div class="content-section" id="salesReportsSection">
             <div class="d-flex justify-content-between align-items-center mb-4">
-                <h3 class="mb-0">Sales Reports</h3>
+                <h3 class="mb-0">Sales Analytics Dashboard</h3>
                 <div>
-                    <button class="btn btn-outline-primary me-2" onclick="exportToCSV()">
+                    <a href="?<?php echo http_build_query(['start_date' => $startDate, 'end_date' => $endDate, 'export' => 'csv']); ?>" class="btn btn-outline-primary me-2">
                         <i class="fas fa-file-export me-2"></i>Export CSV
-                    </button>
+                    </a>
                     <button class="btn btn-primary" onclick="window.print()">
                         <i class="fas fa-print me-2"></i>Print Report
                     </button>
                 </div>
             </div>
 
+            <?php if (isset($exportError)): ?>
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <?php echo $exportError; ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            <?php endif; ?>
+
             <!-- Date Range Filter -->
             <div class="card card-dashboard mb-4 report-filter">
                 <div class="card-body">
                     <h5 class="mb-3">Filter Report by Date Range</h5>
-                    <form method="GET" action="">
+                    <form method="GET" action="" id="reportFilterForm">
                         <div class="row">
                             <div class="col-md-3 mb-2">
                                 <label for="start_date" class="form-label">Start Date</label>
@@ -350,6 +532,7 @@ function validateDate($date, $format = 'Y-m-d') {
                                     <button type="button" class="btn btn-sm btn-outline-secondary date-range-btn" data-days="7">Last 7 Days</button>
                                     <button type="button" class="btn btn-sm btn-outline-secondary date-range-btn" data-days="30">Last 30 Days</button>
                                     <button type="button" class="btn btn-sm btn-outline-secondary date-range-btn" data-month="current">This Month</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary date-range-btn" data-month="last">Last Month</button>
                                 </div>
                             </div>
                             <div class="col-md-2 mb-2 d-flex align-items-end">
@@ -362,20 +545,20 @@ function validateDate($date, $format = 'Y-m-d') {
 
             <!-- Summary Cards -->
             <div class="row mb-4">
-                <div class="col-md-3 mb-3">
-                    <div class="card card-dashboard h-100 summary-card">
+                <div class="col-md-2 mb-3">
+                    <div class="card card-dashboard h-100 summary-card metric-card metric-primary">
                         <div class="card-body">
                             <div class="card-icon bg-primary-light">
                                 <i class="fas fa-shopping-cart"></i>
                             </div>
                             <h5 class="card-title">Total Orders</h5>
                             <h2 class="fw-bold"><?php echo $salesData['total_orders'] ?? 0; ?></h2>
-                            <p class="card-text text-muted">Number of completed orders</p>
+                            <p class="card-text text-muted">All orders in period</p>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card card-dashboard h-100 summary-card">
+                <div class="col-md-2 mb-3">
+                    <div class="card card-dashboard h-100 summary-card metric-card metric-success">
                         <div class="card-body">
                             <div class="card-icon bg-success-light">
                                 <i class="fas fa-rand-sign"></i>
@@ -386,8 +569,8 @@ function validateDate($date, $format = 'Y-m-d') {
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card card-dashboard h-100 summary-card">
+                <div class="col-md-2 mb-3">
+                    <div class="card card-dashboard h-100 summary-card metric-card metric-info">
                         <div class="card-body">
                             <div class="card-icon bg-info-light">
                                 <i class="fas fa-tag"></i>
@@ -398,8 +581,8 @@ function validateDate($date, $format = 'Y-m-d') {
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card card-dashboard h-100 summary-card">
+                <div class="col-md-2 mb-3">
+                    <div class="card card-dashboard h-100 summary-card metric-card metric-warning">
                         <div class="card-body">
                             <div class="card-icon bg-warning-light">
                                 <i class="fas fa-users"></i>
@@ -407,6 +590,95 @@ function validateDate($date, $format = 'Y-m-d') {
                             <h5 class="card-title">Unique Customers</h5>
                             <h2 class="fw-bold"><?php echo $salesData['unique_customers'] ?? 0; ?></h2>
                             <p class="card-text text-muted">Customers who placed orders</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 mb-3">
+                    <div class="card card-dashboard h-100 summary-card">
+                        <div class="card-body">
+                            <div class="card-icon bg-purple-light">
+                                <i class="fas fa-arrow-up"></i>
+                            </div>
+                            <h5 class="card-title">Max Order</h5>
+                            <h2 class="fw-bold">R<?php echo number_format($salesData['max_order_value'] ?? 0, 2); ?></h2>
+                            <p class="card-text text-muted">Largest single order</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 mb-3">
+                    <div class="card card-dashboard h-100 summary-card">
+                        <div class="card-body">
+                            <div class="card-icon bg-danger-light">
+                                <i class="fas fa-arrow-down"></i>
+                            </div>
+                            <h5 class="card-title">Min Order</h5>
+                            <h2 class="fw-bold">R<?php echo number_format($salesData['min_order_value'] ?? 0, 2); ?></h2>
+                            <p class="card-text text-muted">Smallest single order</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Order Status Breakdown -->
+            <div class="row mb-4">
+                <div class="col-md-4 mb-4">
+                    <div class="card card-dashboard h-100">
+                        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Order Status Breakdown</h5>
+                            <span class="badge bg-primary"><?php echo $salesData['total_orders']; ?> Total</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span>Completed</span>
+                                    <span><?php echo $salesData['completed_orders']; ?> (<?php echo $salesData['total_orders'] > 0 ? round(($salesData['completed_orders'] / $salesData['total_orders']) * 100, 1) : 0; ?>%)</span>
+                                </div>
+                                <div class="progress">
+                                    <div class="progress-bar bg-success" style="width: <?php echo $salesData['total_orders'] > 0 ? ($salesData['completed_orders'] / $salesData['total_orders']) * 100 : 0; ?>%"></div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span>Pending</span>
+                                    <span><?php echo $salesData['pending_orders']; ?> (<?php echo $salesData['total_orders'] > 0 ? round(($salesData['pending_orders'] / $salesData['total_orders']) * 100, 1) : 0; ?>%)</span>
+                                </div>
+                                <div class="progress">
+                                    <div class="progress-bar bg-warning" style="width: <?php echo $salesData['total_orders'] > 0 ? ($salesData['pending_orders'] / $salesData['total_orders']) * 100 : 0; ?>%"></div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span>Cancelled</span>
+                                    <span><?php echo $salesData['cancelled_orders']; ?> (<?php echo $salesData['total_orders'] > 0 ? round(($salesData['cancelled_orders'] / $salesData['total_orders']) * 100, 1) : 0; ?>%)</span>
+                                </div>
+                                <div class="progress">
+                                    <div class="progress-bar bg-danger" style="width: <?php echo $salesData['total_orders'] > 0 ? ($salesData['cancelled_orders'] / $salesData['total_orders']) * 100 : 0; ?>%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <div class="card card-dashboard h-100">
+                        <div class="card-header bg-white">
+                            <h5 class="mb-0">Revenue by Status</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="revenueStatusChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <div class="card card-dashboard h-100">
+                        <div class="card-header bg-white">
+                            <h5 class="mb-0">Payment Methods</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="paymentMethodsChart"></canvas>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -442,8 +714,9 @@ function validateDate($date, $format = 'Y-m-d') {
 
             <!-- Top Products -->
             <div class="card card-dashboard mb-4">
-                <div class="card-header bg-white">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Top Selling Products</h5>
+                    <span class="badge bg-primary">Top 5</span>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
@@ -453,16 +726,39 @@ function validateDate($date, $format = 'Y-m-d') {
                                     <th>Product</th>
                                     <th>SKU</th>
                                     <th>Units Sold</th>
+                                    <th>Avg. Price</th>
                                     <th>Revenue</th>
+                                    <th>Performance</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($topProducts as $product): ?>
                                 <tr>
-                                    <td><?php echo htmlspecialchars($product['name']); ?></td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <?php if ($product['image']): ?>
+                                                <img src="../../assets/images/products/<?php echo htmlspecialchars($product['image']); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="rounded me-2" width="40" height="40">
+                                            <?php else: ?>
+                                                <div class="rounded bg-light d-flex align-items-center justify-content-center me-2" style="width: 40px; height: 40px;">
+                                                    <i class="fas fa-box text-muted"></i>
+                                                </div>
+                                            <?php endif; ?>
+                                            <span><?php echo htmlspecialchars($product['name']); ?></span>
+                                        </div>
+                                    </td>
                                     <td><?php echo htmlspecialchars($product['sku']); ?></td>
                                     <td><?php echo $product['total_sold']; ?></td>
+                                    <td>R<?php echo number_format($product['avg_price'], 2); ?></td>
                                     <td>R<?php echo number_format($product['total_revenue'], 2); ?></td>
+                                    <td>
+                                        <?php 
+                                        $maxSold = !empty($topProducts) ? max(array_column($topProducts, 'total_sold')) : 1;
+                                        $percentage = ($product['total_sold'] / $maxSold) * 100;
+                                        ?>
+                                        <div class="progress" style="height: 6px; width: 80px;">
+                                            <div class="progress-bar bg-success" style="width: <?php echo $percentage; ?>%"></div>
+                                        </div>
+                                    </td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -473,8 +769,9 @@ function validateDate($date, $format = 'Y-m-d') {
 
             <!-- Detailed Sales Data -->
             <div class="card card-dashboard">
-                <div class="card-header bg-white">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Detailed Sales Data</h5>
+                    <span class="badge bg-primary"><?php echo count($salesTrends); ?> Days</span>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
@@ -483,17 +780,38 @@ function validateDate($date, $format = 'Y-m-d') {
                                 <tr>
                                     <th>Date</th>
                                     <th>Orders</th>
+                                    <th>Customers</th>
                                     <th>Revenue</th>
                                     <th>Avg. Order Value</th>
+                                    <th>Daily Growth</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($salesTrends as $trend): ?>
+                                <?php 
+                                $previousRevenue = 0;
+                                foreach ($salesTrends as $index => $trend): 
+                                    $growth = 0;
+                                    if ($previousRevenue > 0) {
+                                        $growth = (($trend['daily_revenue'] - $previousRevenue) / $previousRevenue) * 100;
+                                    }
+                                    $previousRevenue = $trend['daily_revenue'];
+                                ?>
                                 <tr>
                                     <td><?php echo date('M j, Y', strtotime($trend['sale_date'])); ?></td>
                                     <td><?php echo $trend['order_count']; ?></td>
+                                    <td><?php echo $trend['daily_customers']; ?></td>
                                     <td>R<?php echo number_format($trend['daily_revenue'], 2); ?></td>
                                     <td>R<?php echo $trend['order_count'] > 0 ? number_format($trend['daily_revenue'] / $trend['order_count'], 2) : '0.00'; ?></td>
+                                    <td>
+                                        <?php if ($index > 0): ?>
+                                            <span class="<?php echo $growth >= 0 ? 'text-success' : 'text-danger'; ?>">
+                                                <i class="fas fa-arrow-<?php echo $growth >= 0 ? 'up' : 'down'; ?> me-1"></i>
+                                                <?php echo number_format(abs($growth), 1); ?>%
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-muted">-</span>
+                                        <?php endif; ?>
+                                    </td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -511,6 +829,8 @@ function validateDate($date, $format = 'Y-m-d') {
     <!-- DataTables JS -->
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.bootstrap5.min.js"></script>
 
     <script>
         $(document).ready(function() {
@@ -520,12 +840,14 @@ function validateDate($date, $format = 'Y-m-d') {
                 ordering: false,
                 info: false,
                 searching: false,
-                paging: false
+                paging: false,
+                dom: '<"row"<"col-sm-12"tr>>'
             });
             
             $('#salesDataTable').DataTable({
                 pageLength: 10,
-                order: [[0, 'desc']]
+                order: [[0, 'desc']],
+                dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>><"row"<"col-sm-12"tr>><"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>'
             });
             
             // Quick date range buttons
@@ -538,10 +860,16 @@ function validateDate($date, $format = 'Y-m-d') {
                     startDate.setDate(startDate.getDate() - days);
                 } else if ($(this).data('month') === 'current') {
                     startDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+                } else if ($(this).data('month') === 'last') {
+                    startDate = new Date(startDate.getFullYear(), startDate.getMonth() - 1, 1);
+                    endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
                 }
                 
                 $('#start_date').val(formatDate(startDate));
                 $('#end_date').val(formatDate(endDate));
+                
+                // Submit the form
+                $('#reportFilterForm').submit();
             });
             
             function formatDate(date) {
@@ -668,6 +996,97 @@ function validateDate($date, $format = 'Y-m-d') {
                         plugins: {
                             legend: {
                                 position: 'bottom'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.raw || 0;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = Math.round((value / total) * 100);
+                                        return `${label}: R${value.toFixed(2)} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Revenue Status Chart
+                const revenueStatusCtx = document.getElementById('revenueStatusChart').getContext('2d');
+                const revenueStatusChart = new Chart(revenueStatusCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Completed', 'Pending', 'Cancelled'],
+                        datasets: [{
+                            label: 'Revenue (R)',
+                            data: [
+                                <?php echo $salesData['completed_revenue'] ?? 0; ?>,
+                                <?php echo $salesData['pending_revenue'] ?? 0; ?>,
+                                <?php echo $salesData['cancelled_revenue'] ?? 0; ?>
+                            ],
+                            backgroundColor: [
+                                '#28a745',
+                                '#ffc107',
+                                '#dc3545'
+                            ]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Revenue (R)'
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Payment Methods Chart
+                const paymentMethodsCtx = document.getElementById('paymentMethodsChart').getContext('2d');
+                const paymentMethodsChart = new Chart(paymentMethodsCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: [
+                            <?php 
+                            foreach ($paymentMethodsData as $method) {
+                                echo "'" . ucfirst(str_replace('_', ' ', $method['payment_method'])) . "',";
+                            }
+                            ?>
+                        ],
+                        datasets: [{
+                            data: [
+                                <?php 
+                                foreach ($paymentMethodsData as $method) {
+                                    echo $method['total_revenue'] . ",";
+                                }
+                                ?>
+                            ],
+                            backgroundColor: [
+                                '#A67B5B',
+                                '#28a745',
+                                '#17a2b8',
+                                '#ffc107',
+                                '#6610f2'
+                            ]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
                             }
                         }
                     }
@@ -697,12 +1116,6 @@ function validateDate($date, $format = 'Y-m-d') {
                 }
             });
         });
-        
-        // Export to CSV function
-        function exportToCSV() {
-            // In a real implementation, this would make an AJAX call to generate a CSV file
-            alert('Export functionality would generate a CSV file with the current report data.');
-        }
     </script>
 </body>
 </html>

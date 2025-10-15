@@ -10,6 +10,144 @@ $tracking_history = [];
 $order_items = [];
 $error = '';
 
+// Define missing functions that are used in this file but not in functions.php
+if (!function_exists('getOrderByTrackingNumber')) {
+    function getOrderByTrackingNumber($pdo, $order_number) {
+        if (!$pdo) return null;
+        
+        try {
+            $stmt = $pdo->prepare("
+                SELECT o.*, 
+                       u.first_name, u.last_name, u.email, u.phone,
+                       COUNT(oi.id) as item_count,
+                       SUM(oi.quantity) as total_quantity
+                FROM orders o 
+                LEFT JOIN users u ON o.user_id = u.id 
+                LEFT JOIN order_items oi ON o.id = oi.order_id 
+                WHERE o.order_number = ?
+                GROUP BY o.id
+            ");
+            $stmt->execute([$order_number]);
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("Get order by tracking number error: " . $e->getMessage());
+            return null;
+        }
+    }
+}
+
+if (!function_exists('getOrderTrackingHistory')) {
+    function getOrderTrackingHistory($pdo, $order_id) {
+        if (!$pdo) return [];
+        
+        try {
+            $stmt = $pdo->prepare("
+                SELECT * FROM order_tracking 
+                WHERE order_id = ? 
+                ORDER BY created_at ASC
+            ");
+            $stmt->execute([$order_id]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("Get order tracking history error: " . $e->getMessage());
+            return [];
+        }
+    }
+}
+
+if (!function_exists('getOrderItemsForTracking')) {
+    function getOrderItemsForTracking($pdo, $order_id) {
+        if (!$pdo) return [];
+        
+        try {
+            $stmt = $pdo->prepare("
+                SELECT oi.*, p.image, p.name as product_name
+                FROM order_items oi 
+                LEFT JOIN products p ON oi.product_id = p.id 
+                WHERE oi.order_id = ?
+            ");
+            $stmt->execute([$order_id]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("Get order items error: " . $e->getMessage());
+            return [];
+        }
+    }
+}
+
+if (!function_exists('canUserViewOrder')) {
+    function canUserViewOrder($pdo, $order_number, $email = null, $user_id = null) {
+        if (!$pdo) return false;
+        
+        try {
+            $sql = "SELECT o.id FROM orders o WHERE o.order_number = ?";
+            $params = [$order_number];
+            
+            if ($user_id) {
+                // Logged-in user: must own the order
+                $sql .= " AND o.user_id = ?";
+                $params[] = $user_id;
+            } else if ($email) {
+                // Guest: check if email matches billing address
+                $sql .= " AND o.billing_address LIKE ?";
+                $params[] = '%' . $email . '%';
+            }
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            return $stmt->fetch() !== false;
+        } catch (PDOException $e) {
+            error_log("Order access validation error: " . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('getOrderStatusWithProgress')) {
+    function getOrderStatusWithProgress($status) {
+        $statuses = [
+            'pending' => [
+                'label' => 'Order Placed',
+                'progress' => 25,
+                'description' => 'Your order has been received and is being processed',
+                'icon' => 'fas fa-shopping-cart'
+            ],
+            'processing' => [
+                'label' => 'Processing',
+                'progress' => 50,
+                'description' => 'Your order is being prepared for shipment',
+                'icon' => 'fas fa-cog'
+            ],
+            'shipped' => [
+                'label' => 'Shipped',
+                'progress' => 75,
+                'description' => 'Your order has been shipped and is on its way',
+                'icon' => 'fas fa-shipping-fast'
+            ],
+            'out_for_delivery' => [
+                'label' => 'Out for Delivery',
+                'progress' => 90,
+                'description' => 'Your order is out for delivery today',
+                'icon' => 'fas fa-truck'
+            ],
+            'delivered' => [
+                'label' => 'Delivered',
+                'progress' => 100,
+                'description' => 'Your order has been delivered successfully',
+                'icon' => 'fas fa-check-circle'
+            ],
+            'cancelled' => [
+                'label' => 'Cancelled',
+                'progress' => 0,
+                'description' => 'Your order has been cancelled',
+                'icon' => 'fas fa-times-circle'
+            ]
+        ];
+        
+        return $statuses[$status] ?? $statuses['pending'];
+    }
+}
+
 // Process tracking form
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $order_number = sanitize_input($_POST['order_number'] ?? '');

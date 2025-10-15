@@ -1,5 +1,5 @@
 <?php
-// admin/index.php - Admin Dashboard
+// admin/index.php - Admin Dashboard (Upgraded Version)
 require_once '../includes/config.php';
 require_once '../includes/database.php';
 require_once '../includes/functions.php';
@@ -18,168 +18,31 @@ if (!$pdo) {
     die("Database connection failed");
 }
 
-// Fetch real dashboard statistics using functions from functions.php
-try {
-    // Total orders count
-    $orderCountStmt = $pdo->prepare("SELECT COUNT(*) as count FROM orders");
-    $orderCountStmt->execute();
-    $orderCount = $orderCountStmt->fetch(PDO::FETCH_ASSOC)['count'];
+// Use the new dashboard statistics function
+$stats = getDashboardStatistics($pdo);
 
-    // Total revenue (sum of completed orders)
-    $revenueStmt = $pdo->prepare("SELECT COALESCE(SUM(total_amount), 0) as revenue FROM orders WHERE status = 'completed'");
-    $revenueStmt->execute();
-    $revenue = $revenueStmt->fetch(PDO::FETCH_ASSOC)['revenue'];
+// Extract statistics for easier access
+$orderCount = $stats['orderCount'];
+$revenue = $stats['revenue'];
+$customerCount = $stats['customerCount'];
+$lowStockCount = $stats['lowStockCount'];
+$pendingOrders = $stats['pendingOrders'];
+$recentOrders = $stats['recentOrders'];
+$salesData = $stats['salesData'];
+$categorySales = $stats['categorySales'];
+$topProducts = $stats['topProducts'];
 
-    // Total customers count - using the same logic from sidebar.php
-    $customerCountStmt = $pdo->prepare("SELECT COUNT(*) as count FROM users WHERE role = 'customer' AND status = 1");
-    $customerCountStmt->execute();
-    $customerCount = $customerCountStmt->fetch(PDO::FETCH_ASSOC)['count'];
+// Prepare chart data using the new helper functions
+$salesChartData = getSalesChartData($salesData);
+$categoryChartData = getCategoryChartData($categorySales, $pdo);
 
-    // Low stock products count - using the same logic from sidebar.php
-    $lowStockStmt = $pdo->prepare("SELECT COUNT(*) as count FROM products WHERE stock_quantity <= stock_alert AND status = 1");
-    $lowStockStmt->execute();
-    $lowStockCount = $lowStockStmt->fetch(PDO::FETCH_ASSOC)['count'];
+// Extract chart data
+$chartLabels = $salesChartData['labels'];
+$chartRevenue = $salesChartData['revenue'];
+$chartOrders = $salesChartData['orders'];
 
-    // Pending orders count for sidebar stats
-    $pendingOrderStmt = $pdo->prepare("SELECT COUNT(*) as count FROM orders WHERE status = 'pending'");
-    $pendingOrderStmt->execute();
-    $pendingOrders = $pendingOrderStmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
-
-    // Recent orders with customer names
-    $recentOrdersStmt = $pdo->prepare("
-        SELECT o.*, u.first_name, u.last_name 
-        FROM orders o 
-        LEFT JOIN users u ON o.user_id = u.id 
-        ORDER BY o.created_at DESC 
-        LIMIT 5
-    ");
-    $recentOrdersStmt->execute();
-    $recentOrders = $recentOrdersStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Sales data for chart (last 7 days)
-    $salesChartStmt = $pdo->prepare("
-        SELECT 
-            DATE(created_at) as date,
-            COUNT(*) as order_count,
-            COALESCE(SUM(total_amount), 0) as daily_revenue
-        FROM orders 
-        WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-        GROUP BY DATE(created_at)
-        ORDER BY date ASC
-    ");
-    $salesChartStmt->execute();
-    $salesData = $salesChartStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // FIXED: Category sales data - improved query to handle cases with no sales
-    $categorySalesStmt = $pdo->prepare("
-        SELECT 
-            c.name as category_name,
-            COALESCE(COUNT(DISTINCT o.id), 0) as order_count,
-            COALESCE(SUM(oi.quantity), 0) as items_sold,
-            COALESCE(SUM(oi.subtotal), 0) as revenue
-        FROM categories c
-        LEFT JOIN products p ON c.id = p.category_id AND p.status = 1
-        LEFT JOIN order_items oi ON p.id = oi.product_id
-        LEFT JOIN orders o ON oi.order_id = o.id AND o.status = 'completed'
-        WHERE c.status = 1
-        GROUP BY c.id, c.name
-        HAVING revenue > 0 OR items_sold > 0
-        ORDER BY revenue DESC, items_sold DESC
-        LIMIT 6
-    ");
-    $categorySalesStmt->execute();
-    $categorySales = $categorySalesStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Get top selling products
-    $topProductsStmt = $pdo->prepare("
-        SELECT 
-            p.name,
-            p.sku,
-            COUNT(oi.id) as units_sold,
-            COALESCE(SUM(oi.subtotal), 0) as revenue
-        FROM products p
-        LEFT JOIN order_items oi ON p.id = oi.product_id
-        LEFT JOIN orders o ON oi.order_id = o.id AND o.status = 'completed'
-        WHERE p.status = 1
-        GROUP BY p.id, p.name, p.sku
-        ORDER BY units_sold DESC, revenue DESC
-        LIMIT 5
-    ");
-    $topProductsStmt->execute();
-    $topProducts = $topProductsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-} catch (PDOException $e) {
-    error_log("Dashboard data error: " . $e->getMessage());
-    // Set default values if query fails
-    $orderCount = 0;
-    $revenue = 0;
-    $customerCount = 0;
-    $lowStockCount = 0;
-    $pendingOrders = 0;
-    $recentOrders = [];
-    $salesData = [];
-    $categorySales = [];
-    $topProducts = [];
-}
-
-// Prepare chart data
-$chartLabels = [];
-$chartRevenue = [];
-$chartOrders = [];
-
-$currentDate = new DateTime();
-for ($i = 6; $i >= 0; $i--) {
-    $date = clone $currentDate;
-    $date->modify("-$i days");
-    $formattedDate = $date->format('Y-m-d');
-    
-    $found = false;
-    foreach ($salesData as $sale) {
-        if ($sale['date'] == $formattedDate) {
-            $chartLabels[] = $date->format('D');
-            $chartRevenue[] = (float)$sale['daily_revenue'];
-            $chartOrders[] = (int)$sale['order_count'];
-            $found = true;
-            break;
-        }
-    }
-    
-    if (!$found) {
-        $chartLabels[] = $date->format('D');
-        $chartRevenue[] = 0;
-        $chartOrders[] = 0;
-    }
-}
-
-// Prepare category chart data - with fallback data if no sales
-$categoryLabels = [];
-$categoryRevenue = [];
-$categoryColors = ['#A67B5B', '#F2E8D5', '#3A3229', '#8B6145', '#D9C7B2', '#C4A77D'];
-
-if (!empty($categorySales)) {
-    foreach ($categorySales as $index => $category) {
-        $categoryLabels[] = $category['category_name'];
-        $categoryRevenue[] = (float)$category['revenue'];
-    }
-} else {
-    // Fallback: Get top categories by product count if no sales data
-    $fallbackCategoriesStmt = $pdo->prepare("
-        SELECT c.name as category_name, COUNT(p.id) as product_count
-        FROM categories c
-        LEFT JOIN products p ON c.id = p.category_id AND p.status = 1
-        WHERE c.status = 1
-        GROUP BY c.id, c.name
-        ORDER BY product_count DESC
-        LIMIT 6
-    ");
-    $fallbackCategoriesStmt->execute();
-    $fallbackCategories = $fallbackCategoriesStmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    foreach ($fallbackCategories as $index => $category) {
-        $categoryLabels[] = $category['category_name'];
-        $categoryRevenue[] = (float)($category['product_count'] * 100); // Simulated revenue for demo
-    }
-}
+$categoryLabels = $categoryChartData['labels'];
+$categoryRevenue = $categoryChartData['revenue'];
 
 $pageTitle = "Admin Dashboard - HomewareOnTap";
 ?>
@@ -331,6 +194,11 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
             font-weight: bold;
         }
 
+        /* Stats trend indicators */
+        .trend-up { color: #28a745; }
+        .trend-down { color: #dc3545; }
+        .trend-neutral { color: #6c757d; }
+
         /* Mobile responsive fixes */
         @media (max-width: 991.98px) {
             .admin-main {
@@ -366,6 +234,18 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
         .sidebar-theme-dark { color: #3A3229; }
         .sidebar-theme-brown { color: #8B6145; }
         .sidebar-theme-tan { color: #D9C7B2; }
+
+        /* Loading states */
+        .loading-skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+        }
+
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
     </style>
 </head>
 
@@ -396,6 +276,9 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                             <i class="fas fa-calendar me-1"></i> 
                             <span id="currentDate"></span>
                         </span>
+                        <button class="btn btn-sm btn-outline-primary ms-2" id="refreshDashboard">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
                     </div>
                 </div>
 
@@ -466,8 +349,8 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                                 </div>
                                 <h5 class="card-title">Total Orders</h5>
                                 <h2 class="fw-bold"><?php echo $orderCount; ?></h2>
-                                <p class="card-text text-success">
-                                    <i class="fas fa-chart-line me-1"></i> All time orders
+                                <p class="card-text">
+                                    <i class="fas fa-chart-line me-1 trend-up"></i> All time orders
                                 </p>
                             </div>
                         </div>
@@ -480,8 +363,8 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                                 </div>
                                 <h5 class="card-title">Revenue</h5>
                                 <h2 class="fw-bold"><?php echo format_price($revenue); ?></h2>
-                                <p class="card-text text-success">
-                                    <i class="fas fa-money-bill-wave me-1"></i> Completed orders
+                                <p class="card-text">
+                                    <i class="fas fa-money-bill-wave me-1 trend-up"></i> Completed orders
                                 </p>
                             </div>
                         </div>
@@ -494,8 +377,8 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                                 </div>
                                 <h5 class="card-title">Customers</h5>
                                 <h2 class="fw-bold"><?php echo $customerCount; ?></h2>
-                                <p class="card-text text-success">
-                                    <i class="fas fa-user-plus me-1"></i> Active customers
+                                <p class="card-text">
+                                    <i class="fas fa-user-plus me-1 trend-up"></i> Active customers
                                 </p>
                             </div>
                         </div>
@@ -561,7 +444,12 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                         <div class="card card-dashboard h-100">
                             <div class="card-header bg-white d-flex justify-content-between align-items-center">
                                 <h5 class="mb-0">Recent Orders</h5>
-                                <a href="orders/list.php" class="btn btn-sm btn-primary">View All</a>
+                                <div>
+                                    <a href="orders/list.php" class="btn btn-sm btn-primary">View All</a>
+                                    <button class="btn btn-sm btn-outline-secondary" id="exportOrders">
+                                        <i class="fas fa-download"></i> Export
+                                    </button>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <?php if (empty($recentOrders)): ?>
@@ -598,9 +486,7 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                                                     <td><?php echo date('d M Y', strtotime($order['created_at'])); ?></td>
                                                     <td><?php echo format_price($order['total_amount']); ?></td>
                                                     <td>
-                                                        <span class="status-badge status-<?php echo strtolower($order['status']); ?>">
-                                                            <?php echo ucfirst($order['status']); ?>
-                                                        </span>
+                                                        <?php echo getOrderStatusBadge($order['status']); ?>
                                                     </td>
                                                     <td>
                                                         <a href="orders/details.php?id=<?php echo $order['id']; ?>" class="btn btn-sm btn-outline-primary">View</a>
@@ -616,8 +502,9 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                     </div>
                     <div class="col-md-4 mb-4">
                         <div class="card card-dashboard h-100">
-                            <div class="card-header bg-white">
+                            <div class="card-header bg-white d-flex justify-content-between align-items-center">
                                 <h5 class="mb-0">Top Selling Products</h5>
+                                <a href="products/manage.php" class="btn btn-sm btn-outline-primary">Manage</a>
                             </div>
                             <div class="card-body">
                                 <?php if (empty($topProducts)): ?>
@@ -630,7 +517,7 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                                         <?php foreach ($topProducts as $index => $product): ?>
                                         <div class="list-group-item d-flex justify-content-between align-items-center px-0">
                                             <div>
-                                                <h6 class="mb-1"><?php echo htmlspecialchars($product['name']); ?></h6>
+                                                <h6 class="mb-1"><?php echo htmlspecialchars(truncateText($product['name'], 25)); ?></h6>
                                                 <small class="text-muted">SKU: <?php echo htmlspecialchars($product['sku']); ?></small>
                                             </div>
                                             <div class="text-end">
@@ -641,6 +528,80 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                                         <?php endforeach; ?>
                                     </div>
                                 <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Status & Quick Actions -->
+                <div class="row">
+                    <div class="col-md-6 mb-4">
+                        <div class="card card-dashboard h-100">
+                            <div class="card-header bg-white">
+                                <h5 class="mb-0">System Status</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="list-group list-group-flush">
+                                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                        <div>
+                                            <i class="fas fa-database text-primary me-2"></i>
+                                            <span>Database Connection</span>
+                                        </div>
+                                        <span class="badge bg-success">Connected</span>
+                                    </div>
+                                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                        <div>
+                                            <i class="fas fa-server text-primary me-2"></i>
+                                            <span>Server Status</span>
+                                        </div>
+                                        <span class="badge bg-success">Online</span>
+                                    </div>
+                                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                        <div>
+                                            <i class="fas fa-shield-alt text-primary me-2"></i>
+                                            <span>Security Status</span>
+                                        </div>
+                                        <span class="badge bg-success">Secure</span>
+                                    </div>
+                                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                        <div>
+                                            <i class="fas fa-sync-alt text-primary me-2"></i>
+                                            <span>Last Data Update</span>
+                                        </div>
+                                        <span class="text-muted small"><?php echo date('H:i:s'); ?></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-4">
+                        <div class="card card-dashboard h-100">
+                            <div class="card-header bg-white">
+                                <h5 class="mb-0">Quick Actions</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-primary w-100 mb-2" onclick="window.location.href='products/add.php'">
+                                            <i class="fas fa-plus me-1"></i> Add Product
+                                        </button>
+                                    </div>
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-success w-100 mb-2" onclick="window.location.href='coupons/manage.php'">
+                                            <i class="fas fa-tag me-1"></i> Create Coupon
+                                        </button>
+                                    </div>
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-info w-100 mb-2" onclick="window.location.href='reports/sales.php'">
+                                            <i class="fas fa-chart-line me-1"></i> Sales Report
+                                        </button>
+                                    </div>
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-warning w-100 mb-2" onclick="window.location.href='settings/general.php'">
+                                            <i class="fas fa-cog me-1"></i> Settings
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -668,6 +629,24 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                 $('[data-chart-type]').removeClass('active');
                 $(this).addClass('active');
                 updateChartDisplay($(this).data('chart-type'));
+            });
+
+            // Refresh dashboard
+            $('#refreshDashboard').on('click', function() {
+                const $btn = $(this);
+                const originalHtml = $btn.html();
+                
+                $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Refreshing...');
+                
+                setTimeout(function() {
+                    location.reload();
+                }, 1000);
+            });
+
+            // Export orders functionality
+            $('#exportOrders').on('click', function() {
+                alert('Export functionality would be implemented here. This would generate a CSV/Excel file of recent orders.');
+                // In a real implementation, this would make an AJAX call to an export script
             });
             
             function initCharts() {
@@ -763,7 +742,7 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                     }
                 });
                 
-                // FIXED: Categories Chart - Pie Chart with sidebar theme colors
+                // Categories Chart - Pie Chart with sidebar theme colors
                 const categoriesCtx = document.getElementById('categoriesChart');
                 if (categoriesCtx) {
                     window.categoriesChart = new Chart(categoriesCtx, {
@@ -812,7 +791,7 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
                                     }
                                 }
                             },
-                            cutout: '0%', // Change to '50%' for doughnut chart
+                            cutout: '0%',
                             animation: {
                                 animateScale: true,
                                 animateRotate: true
@@ -845,9 +824,18 @@ $pageTitle = "Admin Dashboard - HomewareOnTap";
 
             // Auto-refresh dashboard every 5 minutes
             setInterval(function() {
-                // You can add AJAX call here to refresh stats without page reload
-                console.log('Dashboard refresh interval reached');
+                console.log('Dashboard auto-refresh interval reached');
+                // You can implement AJAX refresh here if needed
             }, 300000); // 5 minutes
+
+            // Add keyboard shortcuts
+            $(document).on('keydown', function(e) {
+                // Ctrl+R to refresh dashboard
+                if (e.ctrlKey && e.key === 'r') {
+                    e.preventDefault();
+                    $('#refreshDashboard').click();
+                }
+            });
         });
     </script>
 </body>

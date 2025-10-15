@@ -40,13 +40,14 @@ if ($userId === 0) {
 $db = new Database();
 $pdo = $db->getConnection();
 
-// Get cart items using functions from functions.php
-$cart_id = getCurrentCartId($pdo);
-$cart_items = getCartItems($pdo, $cart_id);
-$cart_total = calculateCartTotal($cart_items);
-$shipping_cost = calculateShippingCost($cart_total);
-$tax_amount = calculateTaxAmount($cart_total);
-$grand_total = $cart_total + $shipping_cost + $tax_amount;
+// Get cart summary using the function from functions.php
+$cartSummary = getCartSummary();
+$cart_items = $cartSummary['items'] ?? [];
+$cart_total = $cartSummary['cart_total'] ?? 0;
+$shipping_cost = $cartSummary['shipping_cost'] ?? 0;
+$tax_amount = $cartSummary['tax_amount'] ?? 0;
+$grand_total = $cartSummary['grand_total'] ?? 0;
+$discount_amount = $cartSummary['discount_amount'] ?? 0;
 
 // Check if cart is empty, redirect to cart page
 if (empty($cart_items)) {
@@ -57,16 +58,29 @@ if (empty($cart_items)) {
 // Get user addresses
 $addresses = getUserAddresses($pdo, $userId);
 
+// Get user payment methods
+$payment_methods = getUserPaymentMethods($pdo, $userId);
+
 // Process checkout form submission
 $errors = [];
 $success = false;
 
+// Generate CSRF token for form security
+$csrf_token = generate_csrf_token();
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Validate CSRF token
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $errors[] = "Security token validation failed. Please try again.";
+    }
+    
     // Validate form data
     $shipping_address_id = $_POST['shipping_address'] ?? 0;
     $billing_address_id = $_POST['billing_address'] ?? 0;
     $use_same_address = isset($_POST['use_same_address']);
     $payment_method = $_POST['payment_method'] ?? '';
+    $save_payment_method = isset($_POST['save_payment_method']);
+    $coupon_code = trim($_POST['coupon_code'] ?? '');
     
     // Validate required fields
     if (empty($shipping_address_id)) {
@@ -80,6 +94,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($payment_method)) {
         $errors[] = "Please select a payment method.";
     }
+    
+    // Validate payment method details for credit card
+    if ($payment_method === 'credit_card') {
+        $card_number = str_replace(' ', '', $_POST['card_number'] ?? '');
+        $expiry_date = $_POST['expiry_date'] ?? '';
+        $cvv = $_POST['cvv'] ?? '';
+        $card_name = trim($_POST['card_name'] ?? '');
+        
+        if (empty($card_number) || !validateCardNumber($card_number)) {
+            $errors[] = "Please enter a valid card number.";
+        }
+        
+        if (empty($expiry_date)) {
+            $errors[] = "Please enter card expiry date.";
+        } else {
+            $expiry_parts = explode('/', $expiry_date);
+            if (count($expiry_parts) !== 2 || !validateExpiryDate($expiry_parts[0], $expiry_parts[1])) {
+                $errors[] = "Please enter a valid expiry date (MM/YY).";
+            }
+        }
+        
+        if (empty($cvv) || !preg_match('/^\d{3,4}$/', $cvv)) {
+            $errors[] = "Please enter a valid CVV.";
+        }
+        
+        if (empty($card_name)) {
+            $errors[] = "Please enter the name on card.";
+        }
+    }
+    
+    // Validate stock availability
+    foreach ($cart_items as $item) {
+        $stock_check = validateCartItemStock($pdo, $item['product_id'], $item['quantity']);
+        if (!$stock_check['available']) {
+            $errors[] = "{$item['name']}: {$stock_check['message']}";
+        }
+    }
+
+    // Apply coupon if provided
+    $cart_id = getCurrentCartId($pdo);
+    if (!empty($coupon_code) && $cart_id) {
+        $coupon_result = applyCouponToCart($pdo, $cart_id, $coupon_code);
+        if ($coupon_result['success']) {
+            // Update cart totals with discount
+            $cartSummary = getCartSummary($cart_id);
+            $cart_total = $cartSummary['cart_total'];
+            $discount_amount = $cartSummary['discount_amount'];
+            $grand_total = $cartSummary['grand_total'];
+        } else {
+            $errors[] = $coupon_result['message'];
+        }
+    }
 
     // If no errors, process the order
     if (empty($errors)) {
@@ -88,22 +154,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $billing_address_id = $shipping_address_id;
         }
         
-        // Create order
-        // NOTE: createOrder now returns an array [order_id, order_number] or false
-        $order_result = createOrder($pdo, $userId, $shipping_address_id, $billing_address_id, $cart_items, $cart_total, $shipping_cost, $tax_amount, $grand_total, $payment_method);
+        // Create order using the updated function signature
+        $order_result = createOrder(
+            $pdo, 
+            $userId, 
+            $shipping_address_id, 
+            $billing_address_id, 
+            $cart_items, 
+            $cart_total, 
+            $shipping_cost, 
+            $tax_amount, 
+            $grand_total, 
+            $payment_method,
+            $discount_amount
+        );
         
-        if ($order_result) {
+        if ($order_result && $order_result['success']) {
             $orderId = $order_result['order_id'];
             $orderNumber = $order_result['order_number'];
             
+            // Save payment method if requested and valid
+            if ($save_payment_method && $payment_method === 'credit_card') {
+                $card_type = detectCardType($card_number);
+                $masked_number = maskCardNumber($card_number);
+                $expiry_parts = explode('/', $expiry_date);
+                
+                addUserPaymentMethod(
+                    $pdo, 
+                    $userId, 
+                    $card_type, 
+                    $masked_number, 
+                    $card_name, 
+                    $expiry_parts[0], 
+                    $expiry_parts[1],
+                    count($payment_methods) === 0 // Set as default if no other methods
+                );
+            }
+            
             // Handle PayFast payment
             if ($payment_method === 'payfast') {
-                // Process PayFast payment
-                // Using payfast_helper.php as provided for consistent form generation
                 require_once '../../lib/payfast/payfast_helper.php';
 
-                // Fetch full user details if needed, for now use session data
-                // Explode logic for name used as fallback if first_name/last_name not explicitly set in session.
                 $firstName = $user['first_name'] ?? (explode(' ', $user['name'])[0] ?? 'Customer');
                 $lastName = $user['last_name'] ?? (explode(' ', $user['name'])[1] ?? 'User');
                 
@@ -111,9 +202,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'order_id' => $orderId,
                     'amount' => $grand_total,
                     'item_name' => 'Order #' . $orderNumber,
-                    // Use $orderId in return and cancel URLs as query parameter
-                    'return_url' => SITE_URL . '/pages/payment/return.php' . '?order_id=' . $orderId,
-                    'cancel_url' => SITE_URL . '/pages/payment/cancel.php' . '?order_id=' . $orderId,
+                    'return_url' => SITE_URL . '/pages/payment/return.php?order_id=' . $orderId,
+                    'cancel_url' => SITE_URL . '/pages/payment/cancel.php?order_id=' . $orderId,
                     'notify_url' => SITE_URL . '/pages/payment/itn.php',
                     'customer' => [
                         'first_name' => $firstName, 
@@ -123,43 +213,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]
                 ];
                 
-                // Generate and display PayFast form using the helper class
                 $form = PayFastHelper::createPaymentForm($orderData);
                 echo $form;
                 echo '<script>document.getElementById("payfast-payment-form").submit();</script>';
                 exit;
             }
 
-            // For cash on delivery, bank transfer, and EFT payments
-            if (in_array($payment_method, ['cash_on_delivery', 'bank_transfer', 'eft'])) {
+            // For offline payment methods
+            if (in_array($payment_method, ['cash_on_delivery', 'bank_transfer', 'eft', 'credit_card'])) {
                 if (clearCart($pdo)) {
-                    // Redirect to order confirmation for offline payment methods
+                    // Create notification for the user
+                    createUserNotification(
+                        $pdo,
+                        $userId,
+                        'Order Confirmed',
+                        "Your order #{$orderNumber} has been placed successfully.",
+                        'order',
+                        $orderId,
+                        'order',
+                        SITE_URL . '/pages/account/order-details.php?id=' . $orderId,
+                        'View Order',
+                        'fas fa-shopping-bag',
+                        'medium'
+                    );
+                    
                     header('Location: ' . SITE_URL . '/pages/account/order-confirmation.php?order_id=' . $orderId);
                     exit;
                 } else {
                     $errors[] = "There was an error clearing your cart. Please contact support.";
                 }
             }
-
-            // For credit card payments (would typically go to a payment gateway)
-            if ($payment_method === 'credit_card') {
-                // In a real implementation, this would redirect to a payment gateway
-                // For now, we'll treat it as successful and clear the cart
-                if (clearCart($pdo)) {
-                    header('Location: ' . SITE_URL . '/pages/account/order-confirmation.php?order_id=' . $orderId);
-                    exit;
-                } else {
-                    $errors[] = "There was an error processing your payment. Please try again.";
-                }
-            }
         } else {
-            $errors[] = "There was an error processing your order. Please try again.";
+            $errors[] = $order_result['message'] ?? "There was an error processing your order. Please try again.";
         }
     }
 }
 
-// Function to create order (keep this in checkout.php as it's specific to checkout)
-function createOrder($pdo, $userId, $shippingAddressId, $billingAddressId, $cartItems, $cartTotal, $shippingCost, $taxAmount, $grandTotal, $paymentMethod) {
+// Function to create order (enhanced version)
+function createOrder($pdo, $userId, $shippingAddressId, $billingAddressId, $cartItems, $cartTotal, $shippingCost, $taxAmount, $grandTotal, $paymentMethod, $discountAmount = 0) {
     try {
         $pdo->beginTransaction();
         
@@ -187,14 +278,15 @@ function createOrder($pdo, $userId, $shippingAddressId, $billingAddressId, $cart
         }
         
         // Insert order
-        $sql = "INSERT INTO orders (user_id, order_number, status, total_amount, shipping_address, billing_address, payment_method, payment_status, shipping_cost, tax_amount) 
-                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO orders (user_id, order_number, status, total_amount, discount_amount, shipping_address, billing_address, payment_method, payment_status, shipping_cost, tax_amount) 
+                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)";
         
         $stmt = $pdo->prepare($sql);
         $stmt->execute([
             $userId,
             $orderNumber,
             $grandTotal,
+            $discountAmount,
             json_encode($shippingAddress),
             json_encode($billingAddress),
             $paymentMethod,
@@ -220,23 +312,30 @@ function createOrder($pdo, $userId, $shippingAddressId, $billingAddressId, $cart
                 $item['price'] * $item['quantity']
             ]);
             
-            // Update product stock
-            $sql = "UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?";
+            // Update product stock with safety check
+            $sql = "UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND stock_quantity >= ?";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([$item['quantity'], $item['product_id']]);
+            $stmt->execute([$item['quantity'], $item['product_id'], $item['quantity']]);
+            
+            if ($stmt->rowCount() === 0) {
+                throw new Exception("Insufficient stock for product: " . $item['name']);
+            }
         }
         
+        // Add initial tracking event
+        addOrderTrackingEvent($pdo, $orderId, 'pending', 'Order placed and awaiting processing');
+        
         $pdo->commit();
-        return ['order_id' => $orderId, 'order_number' => $orderNumber]; // Return both ID and Number
+        return ['success' => true, 'order_id' => $orderId, 'order_number' => $orderNumber];
         
     } catch (Exception $e) {
         $pdo->rollBack();
         error_log("Order creation error: " . $e->getMessage());
-        return false;
+        return ['success' => false, 'message' => $e->getMessage()];
     }
 }
 
-// Function to get address by ID (keep this in checkout.php as it's specific to checkout)
+// Function to get address by ID
 function getAddressById($pdo, $addressId) {
     try {
         $stmt = $pdo->prepare("SELECT * FROM addresses WHERE id = ? LIMIT 1");
@@ -274,6 +373,7 @@ $pageTitle = "Checkout - HomewareOnTap";
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
+    /* [Keep all the existing CSS styles from the original file] */
     /* Global Styles for User Dashboard (Consistent with dashboard.php) */
     :root {
         --primary: #A67B5B; /* Brown/Tan */
@@ -660,6 +760,52 @@ $pageTitle = "Checkout - HomewareOnTap";
         margin-bottom: 5px;
     }
 
+    /* Coupon section */
+    .coupon-section {
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+    
+    .coupon-success {
+        color: var(--success);
+        font-weight: 600;
+    }
+    
+    .coupon-error {
+        color: var(--danger);
+        font-weight: 600;
+    }
+
+    /* Saved payment methods */
+    .saved-payment-method {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 10px;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .saved-payment-method:hover {
+        border-color: var(--primary);
+    }
+    
+    .saved-payment-method.selected {
+        border-color: var(--primary);
+        background-color: rgba(166, 123, 91, 0.05);
+    }
+    
+    .saved-payment-method .default-badge {
+        background-color: var(--primary);
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        margin-left: 10px;
+    }
+
     /* Responsive adjustments */
     @media (max-width: 768px) {
         .checkout-steps {
@@ -764,8 +910,31 @@ $pageTitle = "Checkout - HomewareOnTap";
                     </div>
 
                     <form action="checkout.php" method="POST" id="checkoutForm">
+                        <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
+                        
                         <div class="row">
                             <div class="col-lg-8">
+                                <!-- Coupon Section -->
+                                <div class="checkout-section">
+                                    <h3 class="section-title">Apply Coupon</h3>
+                                    <div class="coupon-section">
+                                        <div class="row g-2">
+                                            <div class="col-md-8">
+                                                <input type="text" class="form-control" name="coupon_code" id="coupon_code" placeholder="Enter coupon code" value="<?php echo htmlspecialchars($coupon_code ?? ''); ?>">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <button type="button" class="btn btn-outline-primary w-100" id="applyCouponBtn">Apply Coupon</button>
+                                            </div>
+                                        </div>
+                                        <div id="couponMessage" class="mt-2"></div>
+                                        <?php if ($discount_amount > 0): ?>
+                                        <div class="coupon-success mt-2">
+                                            <i class="fas fa-check-circle"></i> Coupon applied! Discount: R<?php echo number_format($discount_amount, 2); ?>
+                                        </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                
                                 <div class="checkout-section">
                                     <h3 class="section-title">Shipping Address</h3>
                                     
@@ -783,6 +952,9 @@ $pageTitle = "Checkout - HomewareOnTap";
                                                         <?php echo htmlspecialchars($address['country']); ?>
                                                     </p>
                                                     <p><strong>Phone:</strong> <?php echo htmlspecialchars($address['phone']); ?></p>
+                                                    <?php if ($address['is_default']): ?>
+                                                    <span class="badge bg-primary">Default</span>
+                                                    <?php endif; ?>
                                                 </div>
                                             </div>
                                             <?php endforeach; ?>
@@ -827,6 +999,9 @@ $pageTitle = "Checkout - HomewareOnTap";
                                                         <?php echo htmlspecialchars($address['country']); ?>
                                                     </p>
                                                     <p><strong>Phone:</strong> <?php echo htmlspecialchars($address['phone']); ?></p>
+                                                    <?php if ($address['is_default']): ?>
+                                                    <span class="badge bg-primary">Default</span>
+                                                    <?php endif; ?>
                                                 </div>
                                             </div>
                                             <?php endforeach; ?>
@@ -843,6 +1018,35 @@ $pageTitle = "Checkout - HomewareOnTap";
                                 
                                 <div class="checkout-section">
                                     <h3 class="section-title">Payment Method</h3>
+                                    
+                                    <!-- Saved Payment Methods -->
+                                    <?php if (count($payment_methods) > 0): ?>
+                                    <div class="mb-4">
+                                        <h5 class="mb-3">Saved Payment Methods</h5>
+                                        <?php foreach ($payment_methods as $method): ?>
+                                        <div class="saved-payment-method" onclick="selectSavedPaymentMethod(this, '<?php echo $method['id']; ?>')">
+                                            <div class="d-flex align-items-center justify-content-between">
+                                                <div class="d-flex align-items-center">
+                                                    <i class="fas fa-credit-card payment-icon"></i>
+                                                    <div>
+                                                        <h6 class="mb-0"><?php echo htmlspecialchars($method['card_type']); ?> <?php echo htmlspecialchars($method['masked_card_number']); ?></h6>
+                                                        <p class="mb-0 text-muted">Expires: <?php echo htmlspecialchars($method['expiry_month']); ?>/<?php echo htmlspecialchars($method['expiry_year']); ?></p>
+                                                    </div>
+                                                </div>
+                                                <?php if ($method['is_default']): ?>
+                                                <span class="default-badge">Default</span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        <?php endforeach; ?>
+                                        <div class="text-center mt-2">
+                                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="showNewCardForm()">Use New Card</button>
+                                        </div>
+                                    </div>
+                                    <div id="newCardSection" style="display: none;">
+                                        <hr>
+                                        <h5 class="mb-3">New Card Details</h5>
+                                    <?php endif; ?>
                                     
                                     <div class="payment-method" onclick="selectPaymentMethod(this, 'payfast')">
                                         <input type="radio" name="payment_method" value="payfast" id="payfast" required style="display: none;">
@@ -903,6 +1107,18 @@ $pageTitle = "Checkout - HomewareOnTap";
                                         </div>
                                     </div>
                                     
+                                    <?php if (count($payment_methods) > 0): ?>
+                                    </div> <!-- End newCardSection -->
+                                    <?php endif; ?>
+                                    
+                                    <!-- Save Payment Method Option -->
+                                    <div class="form-check mt-3" id="savePaymentMethodOption" style="display: none;">
+                                        <input class="form-check-input" type="checkbox" name="save_payment_method" id="save_payment_method">
+                                        <label class="form-check-label" for="save_payment_method">
+                                            Save this card for future purchases
+                                        </label>
+                                    </div>
+                                    
                                     <!-- Payment Method Information Boxes -->
                                     <div class="payment-info-box" id="eft-info">
                                         <h6><i class="fas fa-info-circle me-2"></i>Electronic Funds Transfer (EFT)</h6>
@@ -942,23 +1158,24 @@ $pageTitle = "Checkout - HomewareOnTap";
                                     
                                     <div class="row">
                                         <div class="col-md-12 mb-3">
-                                            <label for="cardNumber" class="form-label">Card Number</label>
-                                            <input type="text" class="form-control" id="cardNumber" placeholder="1234 5678 9012 3456">
+                                            <label for="card_number" class="form-label">Card Number</label>
+                                            <input type="text" class="form-control" id="card_number" name="card_number" placeholder="1234 5678 9012 3456" maxlength="19">
+                                            <div class="form-text" id="cardType"></div>
                                         </div>
                                         
                                         <div class="col-md-6 mb-3">
-                                            <label for="expiryDate" class="form-label">Expiry Date</label>
-                                            <input type="text" class="form-control" id="expiryDate" placeholder="MM/YY">
+                                            <label for="expiry_date" class="form-label">Expiry Date</label>
+                                            <input type="text" class="form-control" id="expiry_date" name="expiry_date" placeholder="MM/YY" maxlength="5">
                                         </div>
                                         
                                         <div class="col-md-6 mb-3">
                                             <label for="cvv" class="form-label">CVV</label>
-                                            <input type="text" class="form-control" id="cvv" placeholder="123">
+                                            <input type="text" class="form-control" id="cvv" name="cvv" placeholder="123" maxlength="4">
                                         </div>
                                         
                                         <div class="col-md-12 mb-3">
-                                            <label for="cardName" class="form-label">Name on Card</label>
-                                            <input type="text" class="form-control" id="cardName" placeholder="John Doe">
+                                            <label for="card_name" class="form-label">Name on Card</label>
+                                            <input type="text" class="form-control" id="card_name" name="card_name" placeholder="John Doe">
                                         </div>
                                     </div>
                                 </div>
@@ -992,6 +1209,13 @@ $pageTitle = "Checkout - HomewareOnTap";
                                         <span>R<?php echo number_format($cart_total, 2); ?></span>
                                     </div>
                                     
+                                    <?php if ($discount_amount > 0): ?>
+                                    <div class="order-summary-item text-success">
+                                        <span>Discount</span>
+                                        <span>-R<?php echo number_format($discount_amount, 2); ?></span>
+                                    </div>
+                                    <?php endif; ?>
+                                    
                                     <div class="order-summary-item">
                                         <span>Shipping</span>
                                         <span>R<?php echo number_format($shipping_cost, 2); ?></span>
@@ -1008,11 +1232,11 @@ $pageTitle = "Checkout - HomewareOnTap";
                                     </div>
                                     
                                     <button type="submit" class="btn btn-primary w-100 mt-4" id="placeOrderBtn">
-                                        Place Order
+                                        <i class="fas fa-lock me-2"></i>Place Order
                                     </button>
                                     
                                     <div class="security-note">
-                                        <p><i class="fas fa-lock me-2"></i> Secure checkout. All transactions are encrypted and secure.</p>
+                                        <p><i class="fas fa-shield-alt me-2"></i> Secure checkout. All transactions are encrypted and secure.</p>
                                         <div class="payment-methods">
                                             <img src="<?php echo SITE_URL; ?>/assets/img/icons/visa.png" alt="Visa" height="30" class="me-2">
                                             <img src="<?php echo SITE_URL; ?>/assets/img/icons/mastercard.png" alt="Mastercard" height="30" class="me-2">
@@ -1085,6 +1309,14 @@ $pageTitle = "Checkout - HomewareOnTap";
                                 <label for="phone" class="form-label">Phone Number</label>
                                 <input type="tel" class="form-control" id="phone" required>
                             </div>
+                            <div class="col-md-12 mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="set_default">
+                                    <label class="form-check-label" for="set_default">
+                                        Set as default address
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                     </form>
                 </div>
@@ -1122,11 +1354,13 @@ $pageTitle = "Checkout - HomewareOnTap";
                 // Hide all info boxes first
                 $('.payment-info-box').hide();
                 
-                // Show/hide credit card form
+                // Show/hide credit card form and save option
                 if (method === 'credit_card') {
                     $('#creditCardForm').show();
+                    $('#savePaymentMethodOption').show();
                 } else {
                     $('#creditCardForm').hide();
+                    $('#savePaymentMethodOption').hide();
                 }
                 
                 // Show info box for selected method
@@ -1136,6 +1370,52 @@ $pageTitle = "Checkout - HomewareOnTap";
                     $('#bank-transfer-info').show();
                 } else if (method === 'cash_on_delivery') {
                     $('#cash-on-delivery-info').show();
+                }
+            });
+            
+            // Card number formatting and validation
+            $('#card_number').on('input', function() {
+                let value = $(this).val().replace(/\s+/g, '').replace(/[^0-9]/gi, '');
+                let matches = value.match(/\d{4,16}/g);
+                let match = matches && matches[0] || '';
+                let parts = [];
+                
+                for (let i = 0, len = match.length; i < len; i += 4) {
+                    parts.push(match.substring(i, i + 4));
+                }
+                
+                if (parts.length) {
+                    $(this).val(parts.join(' '));
+                } else {
+                    $(this).val(value);
+                }
+                
+                // Detect card type
+                detectCardType(value);
+            });
+            
+            // Expiry date formatting
+            $('#expiry_date').on('input', function() {
+                let value = $(this).val();
+                if (value.length === 2 && !value.includes('/')) {
+                    $(this).val(value + '/');
+                }
+            });
+            
+            // CVV validation
+            $('#cvv').on('input', function() {
+                $(this).val($(this).val().replace(/[^0-9]/g, ''));
+            });
+            
+            // Apply coupon
+            $('#applyCouponBtn').on('click', function() {
+                applyCoupon();
+            });
+            
+            $('#coupon_code').on('keypress', function(e) {
+                if (e.which === 13) {
+                    e.preventDefault();
+                    applyCoupon();
                 }
             });
             
@@ -1162,13 +1442,42 @@ $pageTitle = "Checkout - HomewareOnTap";
                     isValid = false;
                 }
                 
+                // Validate credit card details if selected
+                if ($('input[name="payment_method"]:checked').val() === 'credit_card') {
+                    const cardNumber = $('#card_number').val().replace(/\s/g, '');
+                    const expiryDate = $('#expiry_date').val();
+                    const cvv = $('#cvv').val();
+                    const cardName = $('#card_name').val();
+                    
+                    if (!cardNumber || cardNumber.length < 13) {
+                        errors.push('Please enter a valid card number');
+                        isValid = false;
+                    }
+                    
+                    if (!expiryDate || !expiryDate.includes('/')) {
+                        errors.push('Please enter a valid expiry date (MM/YY)');
+                        isValid = false;
+                    }
+                    
+                    if (!cvv || cvv.length < 3) {
+                        errors.push('Please enter a valid CVV');
+                        isValid = false;
+                    }
+                    
+                    if (!cardName) {
+                        errors.push('Please enter the name on card');
+                        isValid = false;
+                    }
+                }
+                
                 if (!isValid) {
                     e.preventDefault();
-                    alert('Please complete the following:\n\n• ' + errors.join('\n• '));
+                    showToast('Please complete the following:\n\n• ' + errors.join('\n• '), 'error');
                     return false;
                 }
                 
                 // Show loading state
+                $('.loading-overlay').show();
                 $('#placeOrderBtn').html('<i class="fas fa-spinner fa-spin me-2"></i> Processing...').prop('disabled', true);
                 
                 // Allow the form to submit normally
@@ -1184,7 +1493,7 @@ $pageTitle = "Checkout - HomewareOnTap";
             
             // Auto-select first payment method
             const paymentMethods = $('input[name="payment_method"]');
-            if (paymentMethods.length > 0) {
+            if (paymentMethods.length > 0 && !$('input[name="payment_method"]:checked').length) {
                 paymentMethods.first().prop('checked', true);
                 paymentMethods.first().closest('.payment-method').addClass('selected');
                 
@@ -1228,6 +1537,11 @@ $pageTitle = "Checkout - HomewareOnTap";
                 el.classList.remove('selected');
             });
             
+            // Remove selected from saved payment methods
+            document.querySelectorAll('.saved-payment-method').forEach(function(el) {
+                el.classList.remove('selected');
+            });
+            
             // Add selected class to clicked element
             element.classList.add('selected');
             
@@ -1243,8 +1557,10 @@ $pageTitle = "Checkout - HomewareOnTap";
             // Show/hide credit card form
             if (method === 'credit_card') {
                 document.getElementById('creditCardForm').style.display = 'block';
+                document.getElementById('savePaymentMethodOption').style.display = 'block';
             } else {
                 document.getElementById('creditCardForm').style.display = 'none';
+                document.getElementById('savePaymentMethodOption').style.display = 'none';
             }
             
             // Show info box for selected method
@@ -1255,6 +1571,119 @@ $pageTitle = "Checkout - HomewareOnTap";
             } else if (method === 'cash_on_delivery') {
                 document.getElementById('cash-on-delivery-info').style.display = 'block';
             }
+        }
+        
+        // Select saved payment method
+        function selectSavedPaymentMethod(element, methodId) {
+            // Remove selected class from all payment methods
+            document.querySelectorAll('.payment-method').forEach(function(el) {
+                el.classList.remove('selected');
+            });
+            
+            // Remove selected from saved payment methods
+            document.querySelectorAll('.saved-payment-method').forEach(function(el) {
+                el.classList.remove('selected');
+            });
+            
+            // Add selected class to clicked element
+            element.classList.add('selected');
+            
+            // Hide new card section
+            document.getElementById('newCardSection').style.display = 'none';
+            document.getElementById('creditCardForm').style.display = 'none';
+            document.getElementById('savePaymentMethodOption').style.display = 'none';
+            
+            // Uncheck all payment method radios
+            document.querySelectorAll('input[name="payment_method"]').forEach(function(radio) {
+                radio.checked = false;
+            });
+            
+            // We'll handle this as a special case in the backend
+            // For now, we'll set a hidden field or use credit_card method
+            document.getElementById('credit_card').checked = true;
+        }
+        
+        // Show new card form
+        function showNewCardForm() {
+            document.getElementById('newCardSection').style.display = 'block';
+            document.getElementById('creditCardForm').style.display = 'block';
+            document.getElementById('savePaymentMethodOption').style.display = 'block';
+            
+            // Remove selected from saved payment methods
+            document.querySelectorAll('.saved-payment-method').forEach(function(el) {
+                el.classList.remove('selected');
+            });
+            
+            // Select credit card payment method
+            selectPaymentMethod(document.querySelector('.payment-method input[value="credit_card"]').closest('.payment-method'), 'credit_card');
+        }
+        
+        // Detect card type
+        function detectCardType(cardNumber) {
+            const cardTypeElement = document.getElementById('cardType');
+            let cardType = 'Unknown';
+            
+            if (/^4/.test(cardNumber)) {
+                cardType = 'Visa';
+            } else if (/^5[1-5]/.test(cardNumber)) {
+                cardType = 'MasterCard';
+            } else if (/^3[47]/.test(cardNumber)) {
+                cardType = 'American Express';
+            } else if (/^6(?:011|5)/.test(cardNumber)) {
+                cardType = 'Discover';
+            }
+            
+            if (cardType !== 'Unknown') {
+                cardTypeElement.innerHTML = `<i class="fas fa-credit-card me-1"></i> ${cardType}`;
+                cardTypeElement.className = 'form-text text-success';
+            } else {
+                cardTypeElement.innerHTML = '';
+            }
+        }
+        
+        // Apply coupon via AJAX
+        function applyCoupon() {
+            const couponCode = $('#coupon_code').val();
+            const applyBtn = $('#applyCouponBtn');
+            const messageElement = $('#couponMessage');
+            
+            if (!couponCode) {
+                messageElement.html('<div class="coupon-error"><i class="fas fa-exclamation-circle me-1"></i> Please enter a coupon code</div>');
+                return;
+            }
+            
+            applyBtn.html('<i class="fas fa-spinner fa-spin me-1"></i> Applying...').prop('disabled', true);
+            
+            $.ajax({
+                url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
+                type: 'POST',
+                data: {
+                    action: 'apply_coupon',
+                    coupon_code: couponCode
+                },
+                success: function(response) {
+                    try {
+                        const result = JSON.parse(response);
+                        if (result.success) {
+                            messageElement.html(`<div class="coupon-success"><i class="fas fa-check-circle me-1"></i> ${result.message}</div>`);
+                            // Reload page to update totals
+                            setTimeout(() => {
+                                location.reload();
+                            }, 1500);
+                        } else {
+                            messageElement.html(`<div class="coupon-error"><i class="fas fa-exclamation-circle me-1"></i> ${result.message}</div>`);
+                        }
+                    } catch (e) {
+                        messageElement.html('<div class="coupon-error"><i class="fas fa-exclamation-circle me-1"></i> Error processing coupon</div>');
+                    }
+                },
+                error: function() {
+                    messageElement.html('<div class="coupon-error"><i class="fas fa-exclamation-circle me-1"></i> Network error. Please try again.</div>');
+                },
+                complete: function() {
+                    applyBtn.html('Apply Coupon').prop('disabled', false);
+                }
+            });
         }
         
         // Save new address via AJAX
@@ -1269,12 +1698,13 @@ $pageTitle = "Checkout - HomewareOnTap";
                 postal_code: document.getElementById('postal_code').value,
                 country: document.getElementById('country').value,
                 phone: document.getElementById('phone').value,
+                is_default: document.getElementById('set_default').checked ? 1 : 0,
                 type: 'shipping'
             };
             
             // Validate required fields
             for (let key in formData) {
-                if (formData[key] === '' && key !== 'type') {
+                if (formData[key] === '' && key !== 'is_default' && key !== 'type') {
                     alert('Please fill in all required fields');
                     return;
                 }

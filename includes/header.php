@@ -296,8 +296,8 @@ $isAdminPage = (strpos($_SERVER['PHP_SELF'], '/admin/') !== false);
                     </div>
                 </div>
                 <div class="col-md-6 text-end">
-                    <a href="<?php echo SITE_URL; ?>/pages/track-order.php">Track Order</a>
-                    <a href="<?php echo SITE_URL; ?>/pages/faqs.php">FAQ</a>
+                    <a href="<?php echo SITE_URL; ?>/pages/static/track-order.php">Track Order</a>
+                    <a href="<?php echo SITE_URL; ?>/pages/static/faqs.php">FAQ</a>
                     <?php if ($isLoggedIn): ?>
                         <a href="<?php echo SITE_URL; ?>/pages/account/dashboard.php">My Account</a>
                         <a href="<?php echo SITE_URL; ?>/includes/logout.php">Logout</a>
@@ -342,10 +342,10 @@ $isAdminPage = (strpos($_SERVER['PHP_SELF'], '/admin/') !== false);
                         </ul>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo (basename($_SERVER['PHP_SELF']) == 'about.php') ? 'active' : ''; ?>" href="<?php echo SITE_URL; ?>/pages/about.php">About Us</a>
+                        <a class="nav-link <?php echo (basename($_SERVER['PHP_SELF']) == '/pages/static/about.php') ? 'active' : ''; ?>" href="<?php echo SITE_URL; ?>/pages/static/about.php">About Us</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo (basename($_SERVER['PHP_SELF']) == 'contact.php') ? 'active' : ''; ?>" href="<?php echo SITE_URL; ?>/pages/contact.php">Contact</a>
+                        <a class="nav-link <?php echo (basename($_SERVER['PHP_SELF']) == '/pages/static/contact.php') ? 'active' : ''; ?>" href="<?php echo SITE_URL; ?>/pages/satic/contact.php">Contact</a>
                     </li>
                 </ul>
                 

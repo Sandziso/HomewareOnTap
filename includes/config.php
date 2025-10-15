@@ -12,12 +12,14 @@ define('SITE_NAME', 'HomewareOnTap');
 // Environment Configuration
 define('ENVIRONMENT', 'development'); // Change to 'production' later
 
-// Email Configuration
-define('MAIL_FROM', 'no-reply@homewareontap.co.za');
-define('SMTP_HOST', 'smtp.gmail.com');
-define('SMTP_PORT', 587);
-define('SMTP_USER', 'your_email@gmail.com');
-define('SMTP_PASS', 'your_app_password');
+// File: includes/config.php
+
+// --- MailHog Local Testing Configuration ---
+define('SMTP_HOST', '127.0.0.1'); // Localhost IP
+define('SMTP_PORT', 1025);        // MailHog's SMTP port
+define('SMTP_USER', '');          // No authentication
+define('SMTP_PASS', '');          // No authentication
+// Revert this if you switch back to Gmail/Production
 
 // Payment Configuration
 // PayFast Configuration for Local Development

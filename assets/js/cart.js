@@ -1,6 +1,10 @@
+// cart.js - UPDATED VERSION
+
 class ShoppingCart {
     constructor() {
         this.cart = this.loadCart();
+        // Initialize CartManager for server communication
+        this.manager = new CartManager();
         this.init();
     }
 
@@ -8,6 +12,7 @@ class ShoppingCart {
     init() {
         this.updateCartUI();
         this.setupEventListeners();
+        this.syncWithServer(); // Sync on load
     }
 
     // Load cart from localStorage
@@ -26,42 +31,57 @@ class ShoppingCart {
     }
 
     // Add item to cart
-    addItem(product) {
-        // Validate quantity before adding
+    async addItem(product) {
+        // Validate quantity before adding (local check)
         if (!this.validateQuantity(product.id, product.quantity, product.variants)) {
             return false;
         }
 
-        // Check if product already exists in cart
-        const existingItemIndex = this.cart.items.findIndex(item =>
-            item.id === product.id && this.areProductVariantsEqual(item.variants, product.variants)
-        );
+        try {
+            // Use CartManager to perform server-side add
+            const response = await this.manager.addToCart(product.id, product.quantity);
+            
+            if (response.success) {
+                // Update local cart only if server request succeeded
+                const existingItemIndex = this.cart.items.findIndex(item =>
+                    item.id === product.id && this.areProductVariantsEqual(item.variants, product.variants)
+                );
 
-        if (existingItemIndex > -1) {
-            // Update quantity if product exists
-            this.cart.items[existingItemIndex].quantity += product.quantity;
-        } else {
-            // Add new product to cart
-            this.cart.items.push({
-                id: product.id,
-                name: product.name,
-                price: parseFloat(product.price),
-                image: product.image,
-                quantity: product.quantity,
-                variants: product.variants || {}
-            });
+                if (existingItemIndex > -1) {
+                    // Update quantity if product exists
+                    this.cart.items[existingItemIndex].quantity += product.quantity;
+                } else {
+                    // Add new product to cart
+                    this.cart.items.push({
+                        id: product.id,
+                        name: product.name,
+                        price: parseFloat(product.price),
+                        image: product.image,
+                        quantity: product.quantity,
+                        variants: product.variants || {}
+                    });
+                }
+
+                // Update local storage and UI
+                this.updateCartTotals();
+                this.saveCart();
+                this.updateCartUI();
+
+                // Show notification for success
+                this.showNotification(`${product.name} added to cart!`);
+                return true;
+            } else {
+                // CartManager already displays an error toast
+                return false;
+            }
+        } catch (error) {
+            console.error('Error adding to cart:', error);
+            this.manager.showToast('Failed to add item to cart. Please try again.', 'error');
+            return false;
         }
-
-        // Update cart totals
-        this.updateCartTotals();
-        this.saveCart();
-        this.updateCartUI();
-
-        this.syncWithServer(); // Add this line
-        return true;
     }
 
-     // Compare product variants
+    // Compare product variants
     areProductVariantsEqual(variants1, variants2) {
         if (!variants1 && !variants2) return true;
         if (!variants1 || !variants2) return false;
@@ -93,7 +113,11 @@ class ShoppingCart {
     }
 
     // Remove item from cart
-    removeItem(productId, variants = {}) {
+    async removeItem(productId, variants = {}) {
+        // NOTE: The server-side removal logic in CartManager.removeFromCart typically
+        // requires a cartItemId, not productId+variants. Since we don't have a cartItemId
+        // locally, we'll keep the local logic and use syncWithServer() to reconcile.
+        
         this.cart.items = this.cart.items.filter(item =>
             !(item.id === productId && this.areProductVariantsEqual(item.variants, variants))
         );
@@ -102,26 +126,31 @@ class ShoppingCart {
         this.saveCart();
         this.updateCartUI();
 
-        this.syncWithServer(); // Add this line
+        await this.syncWithServer(); // Sync after local change
     }
 
     // Update item quantity
-    updateQuantity(productId, newQuantity, variants = {}) {
+    async updateQuantity(productId, newQuantity, variants = {}) {
         const item = this.cart.items.find(item =>
             item.id === productId && this.areProductVariantsEqual(item.variants, variants)
         );
 
         if (item) {
-            item.quantity = Math.max(0, parseInt(newQuantity));
+            const finalQuantity = Math.max(0, parseInt(newQuantity));
 
-            // Remove item if quantity is 0
-            if (item.quantity === 0) {
+            if (finalQuantity === 0) {
                 this.removeItem(productId, variants);
             } else {
+                // NOTE: The CartManager.updateQuantity method expects a cartItemId,
+                // which is missing from the local cart item. We'll proceed with
+                // local update and use syncWithServer() to reconcile.
+                item.quantity = finalQuantity;
+
                 this.updateCartTotals();
                 this.saveCart();
                 this.updateCartUI();
-                this.syncWithServer(); // Add this line
+                
+                await this.syncWithServer(); // Sync after local change
             }
         }
     }
@@ -141,7 +170,7 @@ class ShoppingCart {
     }
 
     // Clear entire cart
-    clearCart() {
+    async clearCart() {
         this.cart = {
             items: [],
             total: 0,
@@ -150,7 +179,7 @@ class ShoppingCart {
 
         this.saveCart();
         this.updateCartUI();
-        this.syncWithServer(); // Add this line
+        await this.syncWithServer(); // Sync after local clear
     }
 
     // Get cart contents
@@ -380,10 +409,10 @@ class ShoppingCart {
                     variants: this.getVariantsFromButton(button)
                 };
 
+                // addItem now handles calling the server
                 this.addItem(product);
 
-                // Show notification
-                this.showNotification(`${product.name} added to cart!`);
+                // Notification is now handled inside addItem after successful server call
             }
 
             // Clear cart button
@@ -435,62 +464,63 @@ class ShoppingCart {
     }
 
     // Show notification
-    showNotification(message) {
-        // Use existing notification element if available
-        let notification = document.getElementById('cartNotification');
-
-        if (!notification) {
-            notification = document.createElement('div');
-            notification.id = 'cartNotification';
-            notification.className = 'notification';
-            document.body.appendChild(notification);
-        }
-
-        notification.textContent = message;
-        notification.classList.add('show');
-
-        setTimeout(() => {
-            notification.classList.remove('show');
-        }, 3000);
+    showNotification(message, type = 'success') {
+        // Use CartManager's toast function for consistency
+        this.manager.showToast(message, type);
     }
 
-    // In ShoppingCart class - add these methods
+    // UPDATED METHOD: Sync local cart data with the server
     async syncWithServer() {
         try {
-            const response = await fetch('/system/controllers/CartController.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams({
-                    action: 'sync_cart',
-                    cart_data: JSON.stringify(this.cart)
-                })
+            // Send local cart data to server
+            const response = await this.manager.makeRequest('sync_cart', {
+                cart_data: JSON.stringify(this.cart)
             });
 
-            const result = await response.json();
-            if (result.success) {
+            if (response.success) {
                 console.log('Cart synced with server');
+                // Get the definitive cart state from the server
+                const summaryResponse = await this.manager.makeRequest('get_cart_summary');
+                if (summaryResponse.success) {
+                    this.updateFromServer(summaryResponse.summary);
+                }
             }
         } catch (error) {
             console.error('Failed to sync cart:', error);
+            // Error handling is mostly done within makeRequest, but log here too
+        }
+    }
+
+    // NEW METHOD: Update local cart from server data
+    updateFromServer(serverSummary) {
+        if (serverSummary && serverSummary.items) {
+            // Map server items to local cart structure
+            this.cart.items = serverSummary.items.map(item => ({
+                // NOTE: This assumes item.id is the product_id from the server,
+                // and it doesn't fully handle variants reconciliation.
+                id: item.product_id,
+                name: item.name,
+                price: parseFloat(item.price),
+                image: item.image,
+                quantity: parseInt(item.quantity),
+                variants: item.variants || {} // Use server variants if available
+            }));
+            
+            // Re-calculate local totals
+            this.updateCartTotals();
+            // Persist to local storage
+            this.saveCart();
+            // Re-render UI
+            this.updateCartUI();
+            
+            // Also call CartManager's updateUI to handle server-calculated totals/counts
+            this.manager.updateUI(serverSummary);
         }
     }
 }
 
-// Initialize cart when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    window.homewareCart = new ShoppingCart();
-});
-
-// Export for use in other modules if needed
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = ShoppingCart;
-}
-
-
 // =========================================================
-// New CartManager Class for Server-Side Cart Synchronization
+// CartManager Class for Server-Side Cart Synchronization
 // =========================================================
 
 class CartManager {
@@ -499,12 +529,14 @@ class CartManager {
         this.csrfToken = this.getCSRFToken();
     }
 
-    // Placeholder: Gets CSRF token from a hidden field or meta tag
+    // Get CSRF token from meta tag or form
     getCSRFToken() {
-        return document.querySelector('meta[name="csrf-token"]')?.content || 'dummy-csrf-token';
+        return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || 
+               document.querySelector('input[name="csrf_token"]')?.value ||
+               'dummy-csrf-token';
     }
 
-    // Placeholder: Handles AJAX requests to the backend controller
+    // Make AJAX request to backend
     async makeRequest(action, data = {}) {
         const formData = new FormData();
         formData.append('action', action);
@@ -514,44 +546,135 @@ class CartManager {
             formData.append(key, data[key]);
         }
 
-        const response = await fetch(this.baseUrl, {
-            method: 'POST',
-            body: formData
-        });
+        try {
+            const response = await fetch(this.baseUrl, {
+                method: 'POST',
+                body: formData
+            });
 
-        return response.json();
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Request failed:', error);
+            return { success: false, message: 'Network error. Please try again.' };
+        }
     }
 
-    // Placeholder: Updates UI elements like cart count or mini-cart
+    // Fix the updateUI method to handle different response structures
     updateUI(data) {
-        // Implementation logic for updating UI elements goes here
+        // Update cart count from various possible response structures
+        const cartCountElements = document.querySelectorAll('.cart-count');
+        let count = 0;
+        
+        if (data.cart_count !== undefined) {
+            count = data.cart_count;
+        } else if (data.data && data.data.cart_count !== undefined) {
+            count = data.data.cart_count;
+        } else if (data.summary && data.summary.cart_count !== undefined) {
+            count = data.summary.cart_count;
+        }
+        
+        cartCountElements.forEach(el => {
+            el.textContent = count;
+        });
+
+        // Update cart summary if available
+        if (data.summary) {
+            this.updateCartSummary(data.summary);
+        }
+        
         console.log('UI update triggered with data:', data);
     }
 
-    // Placeholder: Displays a toast notification to the user
-    showToast(message, type) {
-        // Implementation logic for displaying a toast/notification goes here
+    // Show toast notification
+    showToast(message, type = 'success') {
+        // Use existing toast function if available
+        if (typeof showToast === 'function') {
+            showToast(message, type);
+            return;
+        }
+
+        // Fallback toast implementation
+        let notification = document.getElementById('cartNotification');
+
+        if (!notification) {
+            notification = document.createElement('div');
+            notification.id = 'cartNotification';
+            notification.className = 'notification';
+            document.body.appendChild(notification);
+        }
+        
+        notification.textContent = message;
+        // Simple class toggling for visibility/styling
+        notification.className = `notification show ${type}`;
+
+        setTimeout(() => {
+            notification.classList.remove('show');
+        }, 4000);
+
         console.log(`[${type.toUpperCase()}] ${message}`);
     }
 
-    // Placeholder: Removes item entirely from the cart
+    // Remove item from cart (API call)
     async removeFromCart(cartItemId) {
-        // Implementation logic for removing item via API call goes here
-        this.showToast(`Removing item ${cartItemId}...`, 'info');
+        this.setLoadingState(cartItemId, true);
+        
+        try {
+            const response = await this.makeRequest('remove_from_cart', {
+                cart_item_id: cartItemId
+            });
+
+            if (response.success) {
+                this.updateUI(response);
+                this.showToast('Item removed from cart', 'success');
+                return { success: true };
+            } else {
+                this.showToast(response.message, 'error');
+                return { success: false, message: response.message };
+            }
+        } catch (error) {
+            this.showToast('Network error. Please try again.', 'error');
+            return { success: false, message: 'Network error' };
+        } finally {
+            this.setLoadingState(cartItemId, false);
+        }
     }
 
-    // Placeholder: Sets a loading state on the cart item UI element
+    // Set loading state
     setLoadingState(cartItemId, isLoading) {
-        // Implementation logic for showing/hiding a spinner on the cart item goes here
-        console.log(`Cart item ${cartItemId} loading state: ${isLoading}`);
+        const element = document.querySelector(`[data-product-id="${cartItemId}"]`) || 
+                         document.querySelector(`[data-cart-item-id="${cartItemId}"]`);
+        
+        if (element) {
+            if (isLoading) {
+                element.classList.add('loading');
+                element.disabled = true;
+            } else {
+                element.classList.remove('loading');
+                element.disabled = false;
+            }
+        }
     }
 
-    // Placeholder: Updates the cart summary totals (subtotal, tax, shipping)
+    // Update cart summary
     updateCartSummary(data) {
-        // Implementation logic for updating cart totals on the cart page goes here
-        console.log('Cart summary updated with data:', data);
+        // Call global function if defined
+        if (typeof updateCartSummary === 'function') {
+            updateCartSummary(
+                data.cart_total,
+                data.shipping_cost,
+                data.tax_amount,
+                data.grand_total
+            );
+        }
+        // Log for debugging
+        console.log('Cart summary updated with server data:', data);
     }
 
+    // Add to cart (API call)
     async addToCart(productId, quantity = 1) {
         try {
             const response = await this.makeRequest('add_to_cart', {
@@ -560,36 +683,90 @@ class CartManager {
             });
 
             if (response.success) {
-                this.updateUI(response.data);
-                this.showToast('Product added to cart', 'success');
+                this.updateUI(response);
+                return { success: true };
             } else {
                 this.showToast(response.message, 'error');
+                return { success: false, message: response.message };
             }
         } catch (error) {
             this.showToast('Network error. Please try again.', 'error');
+            return { success: false, message: 'Network error' };
         }
     }
 
+    // Update quantity (API call) - FIXED
     async updateQuantity(cartItemId, quantity) {
         if (quantity < 1) {
-            await this.removeFromCart(cartItemId);
-            return;
+            const removeResult = await this.removeFromCart(cartItemId);
+            return removeResult;
         }
 
-        // Add loading state
         this.setLoadingState(cartItemId, true);
 
         try {
+            // Fix: Use correct action name 'update_cart_quantity' instead of 'update_cart_item'
             const response = await this.makeRequest('update_cart_quantity', {
                 cart_item_id: cartItemId,
                 quantity: quantity
             });
 
             if (response.success) {
-                this.updateCartSummary(response.data);
+                // Fix: Update UI with the response data
+                this.updateUI(response);
+                return { success: true };
+            } else {
+                this.showToast(response.message, 'error');
+                return { success: false, message: response.message };
             }
+        } catch (error) {
+            this.showToast('Network error. Please try again.', 'error');
+            return { success: false, message: 'Network error' };
         } finally {
             this.setLoadingState(cartItemId, false);
         }
     }
+
+    // Apply coupon (API call)
+    async applyCoupon(couponCode) {
+        try {
+            const response = await this.makeRequest('apply_coupon', {
+                coupon_code: couponCode
+            });
+
+            if (response.success) {
+                this.updateCartSummary(response);
+                this.showToast(response.message, 'success');
+                return { success: true };
+            } else {
+                this.showToast(response.message, 'error');
+                return { success: false, message: response.message };
+            }
+        } catch (error) {
+            this.showToast('Network error. Please try again.', 'error');
+            return { success: false, message: 'Network error' };
+        }
+    }
+
+    // NEW: Get cart summary from server
+    async getCartSummary() {
+        try {
+            const response = await this.makeRequest('get_cart_summary');
+            return response;
+        } catch (error) {
+            console.error('Failed to get cart summary:', error);
+            return { success: false, message: 'Network error' };
+        }
+    }
+}
+
+// Initialize cart when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    window.homewareCart = new ShoppingCart();
+    window.cartManager = new CartManager();
+});
+
+// Export for use in other modules if needed
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { ShoppingCart, CartManager };
 }

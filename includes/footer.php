@@ -366,7 +366,8 @@ $isAdminPage = (strpos($_SERVER['PHP_SELF'], '/admin/') !== false);
                     <li><a href="<?php echo SITE_URL; ?>/pages/shop.php">Shop</a></li>
                     <li><a href="<?php echo SITE_URL; ?>/pages/about.php">About Us</a></li>
                     <li><a href="<?php echo SITE_URL; ?>/pages/contact.php">Contact</a></li>
-                    <li><a href="<?php echo SITE_URL; ?>/pages/faqs.php">FAQ</a></li>
+                    <li><a href="<?php echo SITE_URL; ?>/pages/static/faqs.php">FAQ</a></li>
+                    <li><a href="<?php echo SITE_URL; ?>/pages/static/track-order.php">Track Order</a></li>
                 </ul>
             </div>
             

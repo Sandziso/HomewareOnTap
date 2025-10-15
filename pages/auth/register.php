@@ -11,6 +11,17 @@ require_once $_SERVER['DOCUMENT_ROOT'].'/homewareontap/includes/functions.php';
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
+
+// Generate CSRF token if not exists
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// Check if user is already logged in
+if (is_logged_in()) {
+    header("Location: " . SITE_URL);
+    exit();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -68,7 +79,7 @@ error_reporting(E_ALL);
             font-weight: 600;
             margin-bottom: 1rem;
         }
-        
+
         /* Header Styles */
         .top-bar {
             background: var(--gradient-dark);
@@ -362,62 +373,6 @@ error_reporting(E_ALL);
             box-shadow: var(--shadow-lg);
         }
         
-        /* Steps Indicator */
-        .steps-indicator {
-            display: flex;
-            justify-content: center;
-            margin-bottom: 2rem;
-            position: relative;
-        }
-        
-        .step {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: #e9ecef;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 10px;
-            font-weight: 600;
-            color: #6c757d;
-            position: relative;
-            z-index: 2;
-            transition: var(--transition);
-        }
-        
-        .step.active {
-            background: var(--gradient-primary);
-            color: white;
-            box-shadow: 0 4px 15px rgba(166, 123, 91, 0.3);
-        }
-        
-        .step.completed {
-            background: var(--success);
-            color: white;
-        }
-        
-        .steps-line {
-            position: absolute;
-            top: 50%;
-            left: 50px;
-            right: 50px;
-            height: 2px;
-            background: #e9ecef;
-            transform: translateY(-50%);
-            z-index: 1;
-        }
-        
-        /* Form Steps */
-        .form-step {
-            display: none;
-            animation: fadeIn 0.5s ease;
-        }
-        
-        .form-step.active {
-            display: block;
-        }
-        
         /* Footer */
         .footer {
             background: var(--gradient-dark);
@@ -578,16 +533,6 @@ error_reporting(E_ALL);
             .footer {
                 padding: 40px 0 20px;
             }
-            
-            .steps-indicator {
-                margin-bottom: 1.5rem;
-            }
-            
-            .step {
-                width: 35px;
-                height: 35px;
-                font-size: 0.9rem;
-            }
         }
         
         @media (max-width: 576px) {
@@ -677,6 +622,41 @@ error_reporting(E_ALL);
             background: var(--light);
             padding: 4rem 0;
             margin-top: 3rem;
+        }
+
+        /* Email verification notice */
+        .verification-notice {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-left: 4px solid var(--info);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Password requirements */
+        .password-requirements {
+            font-size: 0.875rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .requirement {
+            display: flex;
+            align-items: center;
+            margin-bottom: 3px;
+        }
+
+        .requirement i {
+            font-size: 0.75rem;
+            margin-right: 5px;
+        }
+
+        .requirement.met {
+            color: var(--success);
+        }
+
+        .requirement.unmet {
+            color: #6c757d;
         }
     </style>
 </head>
@@ -769,7 +749,7 @@ error_reporting(E_ALL);
     <!-- Registration Form -->
     <div class="container my-5">
         <div class="row justify-content-center">
-            <div class="col-lg-10 col-xl-8">
+            <div class="col-lg-8">
                 <div class="register-container">
                     <div class="register-header">
                         <h2>Create Your Account</h2>
@@ -777,14 +757,6 @@ error_reporting(E_ALL);
                     </div>
                     
                     <div class="register-body">
-                        <!-- Steps Indicator -->
-                        <div class="steps-indicator">
-                            <div class="steps-line"></div>
-                            <div class="step active" data-step="1">1</div>
-                            <div class="step" data-step="2">2</div>
-                            <div class="step" data-step="3">3</div>
-                        </div>
-
                         <!-- Messages -->
                         <?php if (isset($_SESSION['message'])): ?>
                             <div class="alert alert-<?php echo $_SESSION['message_type'] ?? 'info'; ?>">
@@ -796,134 +768,117 @@ error_reporting(E_ALL);
                             </div>
                         <?php endif; ?>
 
+                        <!-- Email Verification Notice -->
+                        <div class="verification-notice">
+                            <h5><i class="fas fa-envelope-open-text me-2"></i>Email Verification Required</h5>
+                            <p class="mb-0">After registration, you'll receive an email with a verification link. Please check your inbox (and spam folder) to activate your account.</p>
+                        </div>
+
                         <form action="<?php echo SITE_URL; ?>/pages/auth/register-process.php" method="POST" id="registrationForm" novalidate>
-                            <input type="hidden" name="csrf_token" value="<?php echo generate_csrf_token(); ?>">
+                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
 
-                            <!-- Step 1: Personal Information -->
-                            <div class="form-step active" id="step1">
-                                <h4 class="mb-4 text-center">Personal Information</h4>
-                                
-                                <div class="row mb-4">
-                                    <div class="col-md-6">
-                                        <div class="form-group floating-label">
-                                            <input type="text" class="form-control" id="first_name" name="first_name" 
-                                                value="<?php echo isset($_SESSION['form_data']['first_name']) ? sanitize_input($_SESSION['form_data']['first_name']) : ''; ?>" 
-                                                placeholder=" " required>
-                                            <label for="first_name">First Name *</label>
-                                            <div class="invalid-feedback">Please provide your first name</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="form-group floating-label">
-                                            <input type="text" class="form-control" id="last_name" name="last_name" 
-                                                value="<?php echo isset($_SESSION['form_data']['last_name']) ? sanitize_input($_SESSION['form_data']['last_name']) : ''; ?>" 
-                                                placeholder=" " required>
-                                            <label for="last_name">Last Name *</label>
-                                            <div class="invalid-feedback">Please provide your last name</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="mb-4">
+                            <div class="row mb-4">
+                                <div class="col-md-6">
                                     <div class="form-group floating-label">
-                                        <input type="email" class="form-control" id="email" name="email" 
-                                            value="<?php echo isset($_SESSION['form_data']['email']) ? sanitize_input($_SESSION['form_data']['email']) : ''; ?>" 
-                                            placeholder=" " required>
-                                        <label for="email">Email Address *</label>
-                                        <div class="invalid-feedback">Please provide a valid email address</div>
-                                        <div class="form-text">We'll never share your email with anyone else.</div>
+                                        <input type="text" class="form-control" id="first_name" name="first_name" placeholder=" " 
+                                               minlength="2" maxlength="50" pattern="[a-zA-ZÀ-ÿ' -]+" required>
+                                        <label for="first_name">First Name *</label>
+                                        <div class="invalid-feedback">Please provide a valid first name (2-50 characters, letters, spaces, apostrophes, and hyphens only)</div>
                                     </div>
                                 </div>
-
-                                <div class="mb-4">
-                                    <div class="input-group">
-                                        <span class="input-group-text"><i class="fas fa-phone"></i></span>
-                                        <div class="form-group floating-label flex-grow-1">
-                                            <input type="tel" class="form-control" id="phone" name="phone" 
-                                                value="<?php echo isset($_SESSION['form_data']['phone']) ? sanitize_input($_SESSION['form_data']['phone']) : ''; ?>" 
-                                                placeholder=" ">
-                                            <label for="phone">Phone Number (Optional)</label>
-                                        </div>
+                                <div class="col-md-6">
+                                    <div class="form-group floating-label">
+                                        <input type="text" class="form-control" id="last_name" name="last_name" placeholder=" " 
+                                               minlength="2" maxlength="50" pattern="[a-zA-ZÀ-ÿ' -]+" required>
+                                        <label for="last_name">Last Name *</label>
+                                        <div class="invalid-feedback">Please provide a valid last name (2-50 characters, letters, spaces, apostrophes, and hyphens only)</div>
                                     </div>
-                                </div>
-
-                                <div class="d-flex justify-content-between">
-                                    <div></div> <!-- Empty div for spacing -->
-                                    <button type="button" class="btn btn-primary next-step" data-next="2">Continue <i class="fas fa-arrow-right ms-2"></i></button>
                                 </div>
                             </div>
 
-                            <!-- Step 2: Account Security -->
-                            <div class="form-step" id="step2">
-                                <h4 class="mb-4 text-center">Account Security</h4>
-                                
-                                <div class="mb-4">
-                                    <div class="form-group floating-label">
-                                        <input type="password" class="form-control" id="password" name="password" placeholder=" " required>
-                                        <label for="password">Password *</label>
-                                        <span class="password-toggle" id="passwordToggle"><i class="bi bi-eye"></i></span>
-                                        <div class="invalid-feedback">Password must be at least 8 characters long</div>
-                                        
-                                        <!-- Password Strength Meter -->
-                                        <div class="progress mt-2 d-none" id="passwordStrengthBar">
-                                            <div class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                        </div>
-                                        <small class="form-text text-muted password-strength" id="passwordStrengthText">
-                                            Password strength: None
-                                        </small>
-                                    </div>
-                                </div>
-
-                                <div class="mb-4">
-                                    <div class="form-group floating-label">
-                                        <input type="password" class="form-control" id="confirm_password" name="confirm_password" placeholder=" " required>
-                                        <label for="confirm_password">Confirm Password *</label>
-                                        <span class="password-toggle" id="confirmPasswordToggle"><i class="bi bi-eye"></i></span>
-                                        <div class="invalid-feedback">Passwords do not match</div>
-                                        <div class="valid-feedback">Passwords match!</div>
-                                    </div>
-                                </div>
-
-                                <div class="d-flex justify-content-between">
-                                    <button type="button" class="btn btn-outline-primary prev-step" data-prev="1">
-                                        <i class="fas fa-arrow-left me-2"></i> Back
-                                    </button>
-                                    <button type="button" class="btn btn-primary next-step" data-next="3">
-                                        Continue <i class="fas fa-arrow-right ms-2"></i>
-                                    </button>
+                            <div class="mb-4">
+                                <div class="form-group floating-label">
+                                    <input type="email" class="form-control" id="email" name="email" placeholder=" " 
+                                           pattern="[^@]+@[^@]+\.[^@]+" maxlength="100" required>
+                                    <label for="email">Email Address *</label>
+                                    <div class="invalid-feedback">Please provide a valid email address</div>
+                                    <div class="form-text">We'll never share your email with anyone else.</div>
                                 </div>
                             </div>
 
-                            <!-- Step 3: Final Step -->
-                            <div class="form-step" id="step3">
-                                <h4 class="mb-4 text-center">Almost Done!</h4>
-                                
-                                <div class="mb-4">
-                                    <div class="form-check">
-                                        <input type="checkbox" class="form-check-input" id="newsletter" name="newsletter" checked>
-                                        <label class="form-check-label" for="newsletter">
-                                            Yes, I want to receive exclusive offers and home decor tips via email
-                                        </label>
+                            <div class="mb-4">
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="fas fa-phone"></i></span>
+                                    <div class="form-group floating-label flex-grow-1">
+                                        <input type="tel" class="form-control" id="phone" name="phone" placeholder=" " 
+                                               pattern="^(\+?[0-9]{9,15})$" maxlength="20">
+                                        <label for="phone">Phone Number (Optional)</label>
+                                        <div class="invalid-feedback">Please provide a valid phone number (9-15 digits, optional + at start)</div>
                                     </div>
                                 </div>
+                            </div>
 
-                                <div class="mb-4 form-check">
-                                    <input type="checkbox" class="form-check-input" id="agree_terms" name="agree_terms" required>
-                                    <label class="form-check-label" for="agree_terms">
-                                        I agree to the <a href="<?php echo SITE_URL; ?>/pages/static/terms.php" target="_blank" class="text-decoration-none">Terms and Conditions</a> and <a href="<?php echo SITE_URL; ?>/pages/static/privacy.php" target="_blank" class="text-decoration-none">Privacy Policy</a> *
+                            <div class="mb-4">
+                                <div class="form-group floating-label">
+                                    <input type="password" class="form-control" id="password" name="password" placeholder=" " 
+                                           minlength="8" maxlength="255" pattern="^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$" required>
+                                    <label for="password">Password *</label>
+                                    <span class="password-toggle" id="passwordToggle"><i class="bi bi-eye"></i></span>
+                                    <div class="invalid-feedback">Password must be at least 8 characters with letters and numbers</div>
+                                    
+                                    <!-- Password Strength Meter -->
+                                    <div class="progress mt-2 d-none" id="passwordStrengthBar">
+                                        <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <small class="form-text text-muted password-strength" id="passwordStrengthText">
+                                        Password strength: None
+                                    </small>
+                                    
+                                    <!-- Password Requirements -->
+                                    <div class="password-requirements mt-2">
+                                        <div class="requirement unmet" id="reqLength">
+                                            <i class="fas fa-circle"></i> At least 8 characters
+                                        </div>
+                                        <div class="requirement unmet" id="reqLetter">
+                                            <i class="fas fa-circle"></i> At least one letter
+                                        </div>
+                                        <div class="requirement unmet" id="reqNumber">
+                                            <i class="fas fa-circle"></i> At least one number
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <div class="form-group floating-label">
+                                    <input type="password" class="form-control" id="confirm_password" name="confirm_password" placeholder=" " required>
+                                    <label for="confirm_password">Confirm Password *</label>
+                                    <span class="password-toggle" id="confirmPasswordToggle"><i class="bi bi-eye"></i></span>
+                                    <div class="invalid-feedback">Passwords do not match</div>
+                                    <div class="valid-feedback">Passwords match!</div>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="newsletter" name="newsletter" checked>
+                                    <label class="form-check-label" for="newsletter">
+                                        Yes, I want to receive exclusive offers and home decor tips via email
                                     </label>
-                                    <div class="invalid-feedback">You must agree to the terms and conditions</div>
-                                </div>
-
-                                <div class="d-flex justify-content-between">
-                                    <button type="button" class="btn btn-outline-primary prev-step" data-prev="2">
-                                        <i class="fas fa-arrow-left me-2"></i> Back
-                                    </button>
-                                    <button type="submit" class="btn btn-primary pulse" id="registerButton">
-                                        <i class="fas fa-user-plus me-2"></i> Create Account
-                                    </button>
                                 </div>
                             </div>
+
+                            <div class="mb-4 form-check">
+                                <input type="checkbox" class="form-check-input" id="agree_terms" name="agree_terms" required>
+                                <label class="form-check-label" for="agree_terms">
+                                    I agree to the <a href="<?php echo SITE_URL; ?>/pages/static/terms.php" target="_blank" class="text-decoration-none">Terms and Conditions</a> and <a href="<?php echo SITE_URL; ?>/pages/static/privacy.php" target="_blank" class="text-decoration-none">Privacy Policy</a> *
+                                </label>
+                                <div class="invalid-feedback">You must agree to the terms and conditions</div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary pulse mb-4" id="registerButton">
+                                <i class="fas fa-user-plus me-2"></i> Create Account
+                            </button>
                         </form>
 
                         <div class="login-link">
@@ -1058,92 +1013,6 @@ error_reporting(E_ALL);
             const registerButton = document.getElementById('registerButton');
             const loadingOverlay = document.getElementById('loadingOverlay');
             
-            // Multi-step form functionality
-            let currentStep = 1;
-            const totalSteps = 3;
-            
-            // Show step function
-            function showStep(step) {
-                $('.form-step').removeClass('active');
-                $(`#step${step}`).addClass('active');
-                
-                $('.step').removeClass('active completed');
-                $(`.step[data-step="${step}"]`).addClass('active');
-                
-                // Mark previous steps as completed
-                for (let i = 1; i < step; i++) {
-                    $(`.step[data-step="${i}"]`).addClass('completed');
-                }
-                
-                currentStep = step;
-            }
-            
-            // Next step button
-            $('.next-step').click(function() {
-                const nextStep = parseInt($(this).data('next'));
-                if (validateStep(currentStep)) {
-                    showStep(nextStep);
-                }
-            });
-            
-            // Previous step button
-            $('.prev-step').click(function() {
-                const prevStep = parseInt($(this).data('prev'));
-                showStep(prevStep);
-            });
-            
-            // Validate current step
-            function validateStep(step) {
-                let isValid = true;
-                
-                if (step === 1) {
-                    const firstName = document.getElementById('first_name');
-                    const lastName = document.getElementById('last_name');
-                    const email = document.getElementById('email');
-                    
-                    if (firstName.value.trim() === '') {
-                        firstName.classList.add('is-invalid');
-                        isValid = false;
-                    } else {
-                        firstName.classList.remove('is-invalid');
-                    }
-                    
-                    if (lastName.value.trim() === '') {
-                        lastName.classList.add('is-invalid');
-                        isValid = false;
-                    } else {
-                        lastName.classList.remove('is-invalid');
-                    }
-                    
-                    const emailPattern = /^[^@]+@[^@]+\.[^@]+$/;
-                    if (email.value.trim() === '' || !emailPattern.test(email.value)) {
-                        email.classList.add('is-invalid');
-                        isValid = false;
-                    } else {
-                        email.classList.remove('is-invalid');
-                    }
-                }
-                
-                if (step === 2) {
-                    if (password.value.length < 8) {
-                        password.classList.add('is-invalid');
-                        isValid = false;
-                    } else {
-                        password.classList.remove('is-invalid');
-                    }
-                    
-                    if (confirmPassword.value !== password.value) {
-                        confirmPassword.classList.add('is-invalid');
-                        isValid = false;
-                    } else {
-                        confirmPassword.classList.remove('is-invalid');
-                        confirmPassword.classList.add('is-valid');
-                    }
-                }
-                
-                return isValid;
-            }
-            
             // Password visibility toggle
             function toggleVisibility(toggle, field) {
                 toggle.addEventListener('click', function() {
@@ -1156,18 +1025,27 @@ error_reporting(E_ALL);
             toggleVisibility(document.getElementById('passwordToggle'), password);
             toggleVisibility(document.getElementById('confirmPasswordToggle'), confirmPassword);
 
-            // Password strength indicator
+            // Password strength indicator and requirement checker
             function checkPasswordStrength(password) {
                 let strength = 0;
                 const strengthBar = document.getElementById('passwordStrengthBar');
                 const strengthText = document.getElementById('passwordStrengthText');
                 
-                if (password.length >= 8) strength++;
-                if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
-                if (password.match(/\d/)) strength++;
-                if (password.match(/[^a-zA-Z\d]/)) strength++;
+                // Check requirements
+                const hasLength = password.length >= 8;
+                const hasLetter = /[a-zA-Z]/.test(password);
+                const hasNumber = /\d/.test(password);
                 
-                const strengthPercent = (strength / 4) * 100;
+                // Update requirement indicators
+                document.getElementById('reqLength').className = hasLength ? 'requirement met' : 'requirement unmet';
+                document.getElementById('reqLetter').className = hasLetter ? 'requirement met' : 'requirement unmet';
+                document.getElementById('reqNumber').className = hasNumber ? 'requirement met' : 'requirement unmet';
+                
+                if (hasLength) strength++;
+                if (hasLetter) strength++;
+                if (hasNumber) strength++;
+                
+                const strengthPercent = (strength / 3) * 100;
                 let strengthLabel = '';
                 let barColor = '';
                 
@@ -1182,10 +1060,6 @@ error_reporting(E_ALL);
                         barColor = 'bg-warning';
                         break;
                     case 3:
-                        strengthLabel = 'Good';
-                        barColor = 'bg-info';
-                        break;
-                    case 4:
                         strengthLabel = 'Strong';
                         barColor = 'bg-success';
                         break;
@@ -1200,10 +1074,23 @@ error_reporting(E_ALL);
                     strengthBar.classList.add('d-none');
                     strengthText.textContent = 'Password strength: None';
                 }
+                
+                return strength === 3;
             }
             
             password.addEventListener('input', function() {
-                checkPasswordStrength(this.value);
+                const isStrong = checkPasswordStrength(this.value);
+                
+                // Update password field validity
+                if (isStrong) {
+                    password.classList.remove('is-invalid');
+                    password.classList.add('is-valid');
+                } else {
+                    password.classList.remove('is-valid');
+                    if (this.value.length > 0) {
+                        password.classList.add('is-invalid');
+                    }
+                }
                 
                 // Real-time confirmation validation
                 if (confirmPassword.value.length > 0) {
@@ -1226,34 +1113,94 @@ error_reporting(E_ALL);
                     this.classList.add('is-valid');
                 }
             });
+
+            // Phone validation
+            const phoneInput = document.getElementById('phone');
+            phoneInput.addEventListener('input', function() {
+                const phonePattern = /^\+?[0-9]{9,15}$/;
+                if (this.value && !phonePattern.test(this.value.replace(/\s/g, ''))) {
+                    this.classList.add('is-invalid');
+                    this.classList.remove('is-valid');
+                } else if (this.value) {
+                    this.classList.remove('is-invalid');
+                    this.classList.add('is-valid');
+                } else {
+                    this.classList.remove('is-invalid');
+                    this.classList.remove('is-valid');
+                }
+            });
             
             // Form submission
             form.addEventListener('submit', function(e) {
-                if (!validateStep(currentStep)) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showStep(1);
-                    return;
-                }
-                
-                // Final validation
                 let valid = true;
                 
-                // Check terms agreement
-                const agreeTerms = document.getElementById('agree_terms');
-                if (!agreeTerms.checked) {
-                    agreeTerms.classList.add('is-invalid');
+                // Check required fields
+                const requiredFields = form.querySelectorAll('[required]');
+                requiredFields.forEach(field => {
+                    if (field.type === 'checkbox') {
+                        if (!field.checked) {
+                            field.classList.add('is-invalid');
+                            valid = false;
+                        } else {
+                            field.classList.remove('is-invalid');
+                        }
+                    } else {
+                        if (field.value.trim() === '') {
+                            field.classList.add('is-invalid');
+                            valid = false;
+                        } else {
+                            field.classList.remove('is-invalid');
+                        }
+                    }
+                });
+                
+                // Check email format
+                const email = document.getElementById('email');
+                const emailPattern = /^[^@]+@[^@]+\.[^@]+$/;
+                if (email.value && !emailPattern.test(email.value)) {
+                    email.classList.add('is-invalid');
                     valid = false;
-                } else {
-                    agreeTerms.classList.remove('is-invalid');
+                }
+                
+                // Check name format
+                const namePattern = /^[a-zA-ZÀ-ÿ' -]+$/;
+                const firstName = document.getElementById('first_name');
+                const lastName = document.getElementById('last_name');
+                
+                if (firstName.value && !namePattern.test(firstName.value)) {
+                    firstName.classList.add('is-invalid');
+                    valid = false;
+                }
+                
+                if (lastName.value && !namePattern.test(lastName.value)) {
+                    lastName.classList.add('is-invalid');
+                    valid = false;
+                }
+                
+                // Check phone format if provided
+                const phonePattern = /^\+?[0-9]{9,15}$/;
+                if (phoneInput.value && !phonePattern.test(phoneInput.value.replace(/\s/g, ''))) {
+                    phoneInput.classList.add('is-invalid');
+                    valid = false;
+                }
+                
+                // Check password strength
+                if (!checkPasswordStrength(password.value)) {
+                    password.classList.add('is-invalid');
+                    valid = false;
+                }
+                
+                // Check password match
+                if (confirmPassword.value !== password.value) {
+                    confirmPassword.classList.add('is-invalid');
+                    valid = false;
                 }
                 
                 if (!valid) {
                     e.preventDefault();
                     e.stopPropagation();
-                    showStep(3);
                     
-                    // Scroll to error
+                    // Scroll to the first error
                     const firstInvalid = form.querySelector('.is-invalid');
                     if (firstInvalid) {
                         firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1274,24 +1221,20 @@ error_reporting(E_ALL);
                     if (this.type === 'checkbox') return;
                     
                     if (this.value.trim() !== '') {
-                        this.classList.add('is-valid');
+                        // Don't automatically add valid class for password until it meets requirements
+                        if (this.id === 'password') {
+                            if (checkPasswordStrength(this.value)) {
+                                this.classList.add('is-valid');
+                            } else {
+                                this.classList.remove('is-valid');
+                            }
+                        } else {
+                            this.classList.add('is-valid');
+                        }
                     } else {
                         this.classList.remove('is-valid');
                     }
                 });
-            });
-            
-            // Auto-advance on Enter key (except for textareas and submit buttons)
-            form.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter' && e.target.type !== 'textarea' && e.target.type !== 'submit') {
-                    e.preventDefault();
-                    
-                    if (currentStep < totalSteps) {
-                        if (validateStep(currentStep)) {
-                            showStep(currentStep + 1);
-                        }
-                    }
-                }
             });
         });
     </script>

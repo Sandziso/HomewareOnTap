@@ -17,49 +17,7 @@ $database = new Database();
 $pdo = $database->getConnection();
 
 if (!$pdo) {
-    // In a real application, you might redirect to an error page or show a friendly message
     die("Database connection failed");
-}
-
-// Create messages tables if they don't exist (Idempotent operation)
-$createMessagesTableSQL = "
-CREATE TABLE IF NOT EXISTS `messages` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `user_id` int(11) DEFAULT NULL,
-  `name` varchar(100) NOT NULL,
-  `email` varchar(100) NOT NULL,
-  `subject` varchar(255) NOT NULL,
-  `message` text NOT NULL,
-  `status` enum('new','read','replied','closed') DEFAULT 'new',
-  `is_read` tinyint(1) DEFAULT 0,
-  `read_at` datetime DEFAULT NULL,
-  `replied_at` datetime DEFAULT NULL,
-  `created_at` datetime DEFAULT current_timestamp(),
-  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  PRIMARY KEY (`id`),
-  KEY `user_id` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-";
-
-$createMessageRepliesTableSQL = "
-CREATE TABLE IF NOT EXISTS `message_replies` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `message_id` int(11) NOT NULL,
-  `admin_id` int(11) NOT NULL,
-  `reply_content` text NOT NULL,
-  `created_at` datetime DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  KEY `message_id` (`message_id`),
-  KEY `admin_id` (`admin_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-";
-
-try {
-    $pdo->exec($createMessagesTableSQL);
-    $pdo->exec($createMessageRepliesTableSQL);
-} catch (PDOException $e) {
-    error_log("Error creating messages tables: " . $e->getMessage());
-    // Optionally set an error message for the user
 }
 
 // Handle message actions (reply, delete, mark as read)
@@ -72,15 +30,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $adminId = get_current_user_id();
         
         try {
-            // Start transaction for atomic reply and status update
             $pdo->beginTransaction();
             
-            // 1. Insert reply
+            // Insert reply
             $stmt = $pdo->prepare("INSERT INTO message_replies (message_id, admin_id, reply_content, created_at) VALUES (?, ?, ?, NOW())");
             $success = $stmt->execute([$messageId, $adminId, $replyContent]);
             
             if ($success) {
-                // 2. Update message status to replied and mark as read
+                // Update message status
                 $stmt = $pdo->prepare("UPDATE messages SET status = 'replied', is_read = 1, replied_at = NOW(), read_at = COALESCE(read_at, NOW()) WHERE id = ?");
                 $stmt->execute([$messageId]);
                 
@@ -98,11 +55,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'delete' && $messageId) {
         try {
             $pdo->beginTransaction();
-            // First delete any replies
+            // Delete replies first
             $stmt = $pdo->prepare("DELETE FROM message_replies WHERE message_id = ?");
             $stmt->execute([$messageId]);
             
-            // Then delete the message
+            // Delete the message
             $stmt = $pdo->prepare("DELETE FROM messages WHERE id = ?");
             $success = $stmt->execute([$messageId]);
             
@@ -124,7 +81,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success = $stmt->execute([$messageId]);
             
             if ($success) {
-                // Only show success if a row was actually updated
                 if ($stmt->rowCount() > 0) {
                     $_SESSION['success_message'] = 'Message marked as read.';
                 } else {
@@ -139,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // Redirect to avoid form resubmission, preserving existing GET parameters for continuity
+    // Redirect to avoid form resubmission
     $redirect_url = 'messages.php';
     $get_params = [];
     if (isset($_GET['page'])) $get_params['page'] = $_GET['page'];
@@ -156,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Pagination and filtering
 $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
-$limit = 20; // Items per page
+$limit = 15; // Items per page
 $offset = ($page - 1) * $limit;
 $statusFilter = $_GET['status'] ?? 'all';
 $searchQuery = $_GET['search'] ?? '';
@@ -174,21 +130,17 @@ if ($statusFilter !== 'all') {
     } elseif ($statusFilter === 'replied') {
         $query .= " AND m.status = 'replied'";
     } elseif ($statusFilter === 'read') {
-        // 'read' means is_read=1 AND not 'replied'
         $query .= " AND m.is_read = 1 AND m.status != 'replied'";
     }
 }
 
-// Note: The original search logic is flawed for LEFT JOIN due to potential nulls in u.first_name/u.last_name
-// However, to maintain the original intent and structure, we keep the original LIKE clauses.
 if (!empty($searchQuery)) {
     $query .= " AND (m.name LIKE ? OR m.email LIKE ? OR m.subject LIKE ? OR m.message LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ?)";
     $searchParam = "%$searchQuery%";
-    // The six parameters for the six LIKE clauses
     $params = array_merge($params, [$searchParam, $searchParam, $searchParam, $searchParam, $searchParam, $searchParam]);
 }
 
-$query .= " ORDER BY m.created_at DESC LIMIT ? OFFSET ?";
+$query .= " ORDER BY m.is_read ASC, m.created_at DESC LIMIT ? OFFSET ?";
 $params[] = $limit;
 $params[] = $offset;
 
@@ -207,7 +159,6 @@ try {
 $countQuery = "SELECT COUNT(*) as total FROM messages m LEFT JOIN users u ON m.user_id = u.id WHERE 1=1";
 $countParams = [];
 
-// Re-apply filters for the count query
 if ($statusFilter !== 'all') {
     if ($statusFilter === 'unread') {
         $countQuery .= " AND m.is_read = 0";
@@ -235,36 +186,46 @@ try {
 
 $totalPages = ceil($totalMessages / $limit);
 
-// Helper function to format date - kept as in original
-if (!function_exists('formatDate')) {
-    function formatDate($date) {
-        return date('M j, Y g:i A', strtotime($date));
+// Helper functions
+function formatDate($date) {
+    return date('M j, Y g:i A', strtotime($date));
+}
+
+function getStatusBadge($is_read, $status) {
+    if (!$is_read) {
+        return '<span class="badge bg-danger">Unread</span>';
+    } elseif ($status === 'replied') {
+        return '<span class="badge bg-success">Replied</span>';
+    } else {
+        return '<span class="badge bg-secondary">Read</span>';
     }
 }
 
-// Helper function to get status badge - kept as in original
-if (!function_exists('getStatusBadge')) {
-    function getStatusBadge($is_read, $status) {
-        if (!$is_read) {
-            return '<span class="badge bg-danger">Unread</span>';
-        } elseif ($status === 'replied') {
-            return '<span class="badge bg-success">Replied</span>';
-        } else {
-            return '<span class="badge bg-secondary">Read</span>';
-        }
+function getCustomerName($message) {
+    if (!empty($message['first_name']) && !empty($message['last_name'])) {
+        return htmlspecialchars($message['first_name'] . ' ' . $message['last_name']);
+    } elseif (!empty($message['name'])) {
+        return htmlspecialchars($message['name']);
+    } else {
+        return 'Unknown Customer';
     }
 }
 
-// Helper function to get customer name - kept as in original
-if (!function_exists('getCustomerName')) {
-    function getCustomerName($message) {
-        if (!empty($message['first_name']) && !empty($message['last_name'])) {
-            return htmlspecialchars($message['first_name'] . ' ' . $message['last_name']);
-        } elseif (!empty($message['name'])) {
-            return htmlspecialchars($message['name']);
-        } else {
-            return 'Unknown Customer';
-        }
+// Get message replies
+function getMessageReplies($pdo, $message_id) {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT mr.*, u.first_name, u.last_name 
+            FROM message_replies mr 
+            LEFT JOIN users u ON mr.admin_id = u.id 
+            WHERE mr.message_id = ? 
+            ORDER BY mr.created_at ASC
+        ");
+        $stmt->execute([$message_id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Error fetching message replies: " . $e->getMessage());
+        return [];
     }
 }
 ?>
@@ -276,10 +237,7 @@ if (!function_exists('getCustomerName')) {
     <title>Customer Messages - HomewareOnTap Admin</title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     
     <style>
         :root {
@@ -320,6 +278,7 @@ if (!function_exists('getCustomerName')) {
         .action-buttons .btn {
             padding: 0.25rem 0.5rem;
             font-size: 0.875rem;
+            margin: 0 2px;
         }
         
         .top-navbar {
@@ -353,7 +312,7 @@ if (!function_exists('getCustomerName')) {
         
         .unread-row {
             background-color: #fff9e6;
-            font-weight: 600; /* Added for better visibility of unread messages */
+            font-weight: 600;
         }
         
         .sidebar-overlay {
@@ -371,6 +330,89 @@ if (!function_exists('getCustomerName')) {
             .sidebar-overlay.active {
                 display: block;
             }
+        }
+        
+        .status-filter {
+            border-radius: 20px;
+        }
+        
+        .table-responsive {
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .table th {
+            border-top: none;
+            font-weight: 600;
+            color: var(--dark);
+            background-color: var(--light);
+        }
+        
+        .table td {
+            vertical-align: middle;
+        }
+        
+        .empty-state {
+            padding: 3rem 1rem;
+            text-align: center;
+            color: #6c757d;
+        }
+        
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+        
+        .pagination .page-link {
+            color: var(--primary);
+        }
+        
+        .pagination .page-item.active .page-link {
+            background-color: var(--primary);
+            border-color: var(--primary);
+        }
+        
+        .message-reply {
+            background-color: #f8f9fa;
+            border-left: 4px solid var(--primary);
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .message-reply.admin-reply {
+            background-color: #e8f4fd;
+            border-left-color: #0d6efd;
+        }
+        
+        .message-content {
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+        
+        .stats-card {
+            background: linear-gradient(135deg, var(--primary), #8B6145);
+            color: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stats-card i {
+            font-size: 2rem;
+            opacity: 0.8;
+        }
+        
+        .stats-card .count {
+            font-size: 2rem;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        
+        .stats-card .label {
+            font-size: 0.9rem;
+            opacity: 0.9;
         }
     </style>
 </head>
@@ -404,24 +446,87 @@ if (!function_exists('getCustomerName')) {
         </nav>
 
         <div class="content-section" id="messagesSection">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h3 class="mb-0">Customer Messages (Total: <?= $totalMessages; ?>)</h3>
-                <div class="btn-group">
-                    <a href="?status=all<?= !empty($searchQuery) ? '&search=' . urlencode($searchQuery) : ''; ?>" class="btn btn-sm <?= $statusFilter === 'all' ? 'btn-primary' : 'btn-outline-primary'; ?>">All</a>
-                    <a href="?status=unread<?= !empty($searchQuery) ? '&search=' . urlencode($searchQuery) : ''; ?>" class="btn btn-sm <?= $statusFilter === 'unread' ? 'btn-primary' : 'btn-outline-primary'; ?>">Unread</a>
-                    <a href="?status=read<?= !empty($searchQuery) ? '&search=' . urlencode($searchQuery) : ''; ?>" class="btn btn-sm <?= $statusFilter === 'read' ? 'btn-primary' : 'btn-outline-primary'; ?>">Read</a>
-                    <a href="?status=replied<?= !empty($searchQuery) ? '&search=' . urlencode($searchQuery) : ''; ?>" class="btn btn-sm <?= $statusFilter === 'replied' ? 'btn-primary' : 'btn-outline-primary'; ?>">Replied</a>
+            <!-- Stats Cards -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="count"><?= $totalMessages; ?></div>
+                                <div class="label">Total Messages</div>
+                            </div>
+                            <i class="fas fa-envelope"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <?php
+                                $unreadCount = 0;
+                                foreach ($messages as $msg) {
+                                    if (!$msg['is_read']) $unreadCount++;
+                                }
+                                ?>
+                                <div class="count"><?= $unreadCount; ?></div>
+                                <div class="label">Unread Messages</div>
+                            </div>
+                            <i class="fas fa-envelope-open"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <?php
+                                $repliedCount = 0;
+                                foreach ($messages as $msg) {
+                                    if ($msg['status'] === 'replied') $repliedCount++;
+                                }
+                                ?>
+                                <div class="count"><?= $repliedCount; ?></div>
+                                <div class="label">Replied Messages</div>
+                            </div>
+                            <i class="fas fa-reply"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="count"><?= count($messages); ?></div>
+                                <div class="label">Current Page</div>
+                            </div>
+                            <i class="fas fa-list"></i>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <?php display_message(); // Displays success/error/info messages from session ?>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h3 class="mb-0">Message Management</h3>
+                <div class="btn-group">
+                    <a href="?status=all<?= !empty($searchQuery) ? '&search=' . urlencode($searchQuery) : ''; ?>" class="btn btn-sm <?= $statusFilter === 'all' ? 'btn-primary' : 'btn-outline-primary'; ?> status-filter">All</a>
+                    <a href="?status=unread<?= !empty($searchQuery) ? '&search=' . urlencode($searchQuery) : ''; ?>" class="btn btn-sm <?= $statusFilter === 'unread' ? 'btn-primary' : 'btn-outline-primary'; ?> status-filter">Unread</a>
+                    <a href="?status=read<?= !empty($searchQuery) ? '&search=' . urlencode($searchQuery) : ''; ?>" class="btn btn-sm <?= $statusFilter === 'read' ? 'btn-primary' : 'btn-outline-primary'; ?> status-filter">Read</a>
+                    <a href="?status=replied<?= !empty($searchQuery) ? '&search=' . urlencode($searchQuery) : ''; ?>" class="btn btn-sm <?= $statusFilter === 'replied' ? 'btn-primary' : 'btn-outline-primary'; ?> status-filter">Replied</a>
+                </div>
+            </div>
+
+            <?php display_message(); ?>
 
             <div class="card card-dashboard mb-4">
                 <div class="card-body">
                     <form method="GET" class="row g-2 align-items-center">
                         <div class="col-md-8">
-                            <input type="text" name="search" class="form-control" placeholder="Search by customer name, email or subject" value="<?= htmlspecialchars($searchQuery); ?>">
-                            <input type="hidden" name="status" value="<?= htmlspecialchars($statusFilter); ?>">
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                <input type="text" name="search" class="form-control" placeholder="Search by customer name, email or subject" value="<?= htmlspecialchars($searchQuery); ?>">
+                                <input type="hidden" name="status" value="<?= htmlspecialchars($statusFilter); ?>">
+                            </div>
                         </div>
                         <div class="col-md-4">
                             <button class="btn btn-primary me-2" type="submit">Search</button>
@@ -432,27 +537,30 @@ if (!function_exists('getCustomerName')) {
             </div>
 
             <div class="card card-dashboard">
-                <div class="card-body">
+                <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle" id="messagesTable">
+                        <table class="table table-hover align-middle mb-0" id="messagesTable">
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Customer</th>
-                                    <th>Email</th>
-                                    <th>Subject</th>
-                                    <th>Message</th>
-                                    <th>Date</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th width="5%">ID</th>
+                                    <th width="15%">Customer</th>
+                                    <th width="15%">Email</th>
+                                    <th width="15%">Subject</th>
+                                    <th width="20%">Message</th>
+                                    <th width="10%">Date</th>
+                                    <th width="10%">Status</th>
+                                    <th width="10%">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if (empty($messages)): ?>
                                     <tr>
-                                        <td colspan="8" class="text-center py-4">
-                                            <i class="fas fa-envelope fa-3x text-muted mb-3"></i>
-                                            <p class="text-muted">No messages found matching your criteria.</p>
+                                        <td colspan="8" class="text-center py-5 empty-state">
+                                            <i class="fas fa-envelope-open-text"></i>
+                                            <p class="mb-0">No messages found matching your criteria.</p>
+                                            <?php if (!empty($searchQuery) || $statusFilter !== 'all'): ?>
+                                                <a href="messages.php" class="btn btn-primary mt-3">View All Messages</a>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php else: ?>
@@ -475,47 +583,49 @@ if (!function_exists('getCustomerName')) {
                                                 <?= getStatusBadge($msg['is_read'], $msg['status']); ?>
                                             </td>
                                             <td class="action-buttons">
-                                                <button type="button" class="btn btn-sm btn-outline-primary view-message" 
-                                                        data-message-id="<?= $msg['id']; ?>"
-                                                        data-customer-name="<?= getCustomerName($msg); ?>"
-                                                        data-customer-email="<?= htmlspecialchars($msg['email']); ?>"
-                                                        data-subject="<?= htmlspecialchars($msg['subject']); ?>"
-                                                        data-message="<?= htmlspecialchars($msg['message']); ?>"
-                                                        data-created-at="<?= formatDate($msg['created_at']); ?>"
-                                                        title="View Message">
-                                                    <i class="fas fa-eye"></i>
-                                                </button>
-                                                
-                                                <button type="button" class="btn btn-sm btn-outline-success reply-message" 
-                                                        data-message-id="<?= $msg['id']; ?>"
-                                                        data-customer-name="<?= getCustomerName($msg); ?>"
-                                                        data-customer-email="<?= htmlspecialchars($msg['email']); ?>"
-                                                        data-subject="<?= htmlspecialchars($msg['subject']); ?>"
-                                                        title="Reply">
-                                                    <i class="fas fa-reply"></i>
-                                                </button>
-                                                
-                                                <?php if (!$msg['is_read']): ?>
-                                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Mark this message as read?')">
+                                                <div class="d-flex flex-wrap">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary view-message" 
+                                                            data-message-id="<?= $msg['id']; ?>"
+                                                            data-customer-name="<?= getCustomerName($msg); ?>"
+                                                            data-customer-email="<?= htmlspecialchars($msg['email']); ?>"
+                                                            data-subject="<?= htmlspecialchars($msg['subject']); ?>"
+                                                            data-message="<?= htmlspecialchars($msg['message']); ?>"
+                                                            data-created-at="<?= formatDate($msg['created_at']); ?>"
+                                                            title="View Message">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                    
+                                                    <button type="button" class="btn btn-sm btn-outline-success reply-message" 
+                                                            data-message-id="<?= $msg['id']; ?>"
+                                                            data-customer-name="<?= getCustomerName($msg); ?>"
+                                                            data-customer-email="<?= htmlspecialchars($msg['email']); ?>"
+                                                            data-subject="<?= htmlspecialchars($msg['subject']); ?>"
+                                                            title="Reply">
+                                                        <i class="fas fa-reply"></i>
+                                                    </button>
+                                                    
+                                                    <?php if (!$msg['is_read']): ?>
+                                                        <form method="POST" style="display:inline;">
+                                                            <input type="hidden" name="message_id" value="<?= $msg['id']; ?>">
+                                                            <input type="hidden" name="action" value="mark_read">
+                                                            <input type="hidden" name="current_page" value="<?= htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
+                                                            <button type="submit" class="btn btn-sm btn-outline-warning" title="Mark as Read" onclick="return confirm('Mark this message as read?')">
+                                                                <i class="fas fa-check"></i>
+                                                            </button>
+                                                        </form>
+                                                    <?php endif; ?>
+                                                    
+                                                    <form method="POST" style="display:inline;">
                                                         <input type="hidden" name="message_id" value="<?= $msg['id']; ?>">
-                                                        <input type="hidden" name="action" value="mark_read">
+                                                        <input type="hidden" name="action" value="delete">
                                                         <input type="hidden" name="current_page" value="<?= htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                                                        <button type="submit" class="btn btn-sm btn-outline-warning" title="Mark as Read">
-                                                            <i class="fas fa-check"></i>
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger" 
+                                                                onclick="return confirm('Are you sure you want to delete this message? This action cannot be undone.')" 
+                                                                title="Delete">
+                                                            <i class="fas fa-trash"></i>
                                                         </button>
                                                     </form>
-                                                <?php endif; ?>
-                                                
-                                                <form method="POST" style="display:inline;">
-                                                    <input type="hidden" name="message_id" value="<?= $msg['id']; ?>">
-                                                    <input type="hidden" name="action" value="delete">
-                                                    <input type="hidden" name="current_page" value="<?= htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                                                    <button type="submit" class="btn btn-sm btn-outline-danger" 
-                                                            onclick="return confirm('Are you sure you want to delete this message? This action cannot be undone.')" 
-                                                            title="Delete">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-                                                </form>
+                                                </div>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -525,48 +635,51 @@ if (!function_exists('getCustomerName')) {
                     </div>
 
                     <?php if ($totalPages > 1): ?>
-                    <nav aria-label="Message pagination" class="mt-4">
-                        <ul class="pagination justify-content-center">
-                            
-                            <li class="page-item <?= $page <= 1 ? 'disabled' : ''; ?>">
-                                <a class="page-link" href="?page=<?= max(1, $page - 1); ?>&status=<?= $statusFilter; ?>&search=<?= urlencode($searchQuery); ?>" aria-label="Previous">
-                                    <span aria-hidden="true">&laquo;</span>
-                                </a>
-                            </li>
-
-                            <?php 
-                            // Display a maximum of 5 page numbers around the current page
-                            $startPage = max(1, $page - 2);
-                            $endPage = min($totalPages, $page + 2);
-
-                            // Adjust start and end to always show 5 pages if totalPages allows
-                            if ($endPage - $startPage < 4) {
-                                if ($startPage > 1) $startPage = max(1, $endPage - 4);
-                                if ($endPage < $totalPages) $endPage = min($totalPages, $startPage + 4);
-                            }
-
-                            for ($i = $startPage; $i <= $endPage; $i++): 
-                            ?>
-                                <li class="page-item <?= $i === $page ? 'active' : ''; ?>">
-                                    <a class="page-link" href="?page=<?= $i; ?>&status=<?= $statusFilter; ?>&search=<?= urlencode($searchQuery); ?>">
-                                        <?= $i; ?>
+                    <div class="card-footer">
+                        <nav aria-label="Message pagination">
+                            <ul class="pagination justify-content-center mb-0">
+                                
+                                <li class="page-item <?= $page <= 1 ? 'disabled' : ''; ?>">
+                                    <a class="page-link" href="?page=<?= max(1, $page - 1); ?>&status=<?= $statusFilter; ?>&search=<?= urlencode($searchQuery); ?>" aria-label="Previous">
+                                        <span aria-hidden="true">&laquo;</span>
                                     </a>
                                 </li>
-                            <?php endfor; ?>
 
-                            <li class="page-item <?= $page >= $totalPages ? 'disabled' : ''; ?>">
-                                <a class="page-link" href="?page=<?= min($totalPages, $page + 1); ?>&status=<?= $statusFilter; ?>&search=<?= urlencode($searchQuery); ?>" aria-label="Next">
-                                    <span aria-hidden="true">&raquo;</span>
-                                </a>
-                            </li>
-                        </ul>
-                    </nav>
+                                <?php 
+                                // Display a maximum of 5 page numbers around the current page
+                                $startPage = max(1, $page - 2);
+                                $endPage = min($totalPages, $page + 2);
+
+                                // Adjust start and end to always show 5 pages if totalPages allows
+                                if ($endPage - $startPage < 4) {
+                                    if ($startPage > 1) $startPage = max(1, $endPage - 4);
+                                    if ($endPage < $totalPages) $endPage = min($totalPages, $startPage + 4);
+                                }
+
+                                for ($i = $startPage; $i <= $endPage; $i++): 
+                                ?>
+                                    <li class="page-item <?= $i === $page ? 'active' : ''; ?>">
+                                        <a class="page-link" href="?page=<?= $i; ?>&status=<?= $statusFilter; ?>&search=<?= urlencode($searchQuery); ?>">
+                                            <?= $i; ?>
+                                        </a>
+                                    </li>
+                                <?php endfor; ?>
+
+                                <li class="page-item <?= $page >= $totalPages ? 'disabled' : ''; ?>">
+                                    <a class="page-link" href="?page=<?= min($totalPages, $page + 1); ?>&status=<?= $statusFilter; ?>&search=<?= urlencode($searchQuery); ?>" aria-label="Next">
+                                        <span aria-hidden="true">&raquo;</span>
+                                    </a>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
                     <?php endif; ?>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- View Message Modal -->
     <div class="modal fade" id="viewMessageModal" tabindex="-1" aria-labelledby="viewMessageModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -593,11 +706,13 @@ if (!function_exists('getCustomerName')) {
                     </div>
                     <div class="mb-3">
                         <strong>Message:</strong>
-                        <div class="border p-3 mt-2 bg-light rounded" id="viewMessageContent" style="white-space: pre-wrap;"></div>
+                        <div class="border p-3 mt-2 bg-light rounded message-content" id="viewMessageContent"></div>
                     </div>
                     
                     <div id="viewMessageReplies" class="mt-4">
-                        </div>
+                        <h6>Replies</h6>
+                        <div id="repliesContainer"></div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -607,6 +722,7 @@ if (!function_exists('getCustomerName')) {
         </div>
     </div>
 
+    <!-- Reply Message Modal -->
     <div class="modal fade" id="replyMessageModal" tabindex="-1" aria-labelledby="replyMessageModalLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -648,31 +764,9 @@ if (!function_exists('getCustomerName')) {
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
     <script>
         $(document).ready(function() {
-            // Initialize DataTable - only for styling and basic features like column sorting
-            // We disable client-side search and pagination since they are handled server-side
-            if ($.fn.DataTable.isDataTable('#messagesTable')) {
-                $('#messagesTable').DataTable().destroy();
-            }
-            $('#messagesTable').DataTable({
-                paging: false,          // Disable client-side pagination
-                searching: false,       // Disable client-side search
-                info: false,            // Disable "Showing X of Y entries" info
-                ordering: true,         // Enable column sorting
-                order: [[5, 'desc']],   // Keep default order by Date column (index 5)
-                columnDefs: [
-                    { orderable: false, targets: [7, 4] } // Make Actions and Message columns not orderable
-                ],
-                // Set the page length to match the server limit (20) if showing all results
-                // This is slightly misleading since we only show the current page's results
-                pageLength: <?= $limit; ?> 
-            });
-            
             // Function to populate reply modal
             function setupReplyModal(messageId, customerName, customerEmail, subject) {
                 $('#replyMessageId').val(messageId);
@@ -695,8 +789,7 @@ if (!function_exists('getCustomerName')) {
                 $('#viewCustomerName').text(customerName);
                 $('#viewCustomerEmail').text(customerEmail);
                 $('#viewSubject').text(subject);
-                // Use .text() for safety and preserve line breaks if 'white-space: pre-wrap;' is used
-                $('#viewMessageContent').text(message); 
+                $('#viewMessageContent').text(message);
                 $('#viewCreatedAt').text(createdAt);
                 
                 // Set data attributes on the quick reply button in the view modal
@@ -705,6 +798,19 @@ if (!function_exists('getCustomerName')) {
                     'customer-name': customerName,
                     'customer-email': customerEmail,
                     'subject': subject
+                });
+                
+                // Load replies via AJAX
+                $.ajax({
+                    url: 'get_message_replies.php',
+                    type: 'GET',
+                    data: { message_id: messageId },
+                    success: function(response) {
+                        $('#repliesContainer').html(response);
+                    },
+                    error: function() {
+                        $('#repliesContainer').html('<p class="text-muted">Error loading replies.</p>');
+                    }
                 });
                 
                 $('#viewMessageModal').modal('show');

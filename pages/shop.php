@@ -58,23 +58,18 @@ if (!empty($search_query)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
     
-    <!-- Google Web Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
     
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Libraries Stylesheet -->
     <link href="<?php echo SITE_URL; ?>/lib/animate/animate.min.css" rel="stylesheet">
     <link href="<?php echo SITE_URL; ?>/lib/owlcarousel/assets/owl.carousel.min.css" rel="stylesheet">
     <link href="<?php echo SITE_URL; ?>/lib/tempusdominus/css/tempusdominus-bootstrap-4.min.css" rel="stylesheet" />
 
-    <!-- Customized Bootstrap Stylesheet -->
     <link href="<?php echo SITE_URL; ?>/../assets/css/bootstrap.min.css" rel="stylesheet">
 
-    <!-- Template Stylesheet -->
     <link href="<?php echo SITE_URL; ?>/../assets/css/style.css" rel="stylesheet">
     
     <style>
@@ -174,36 +169,6 @@ if (!empty($search_query)) {
         
         .product-badge.out-of-stock {
             background-color: #6c757d;
-        }
-        
-        .quick-view-btn {
-            position: absolute;
-            top: 12px;
-            right: 12px;
-            background: rgba(255, 255, 255, 0.95);
-            border: none;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 0;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 2;
-            color: var(--dark);
-        }
-        
-        .product-card:hover .quick-view-btn {
-            opacity: 1;
-            transform: translateY(0);
-        }
-        
-        .quick-view-btn:hover {
-            background: var(--primary);
-            color: white;
-            transform: scale(1.1);
         }
         
         .product-info {
@@ -405,21 +370,6 @@ if (!empty($search_query)) {
             border-color: var(--primary);
         }
         
-        .cart-count-badge {
-            position: absolute;
-            top: -8px;
-            right: -8px;
-            background: var(--danger);
-            color: white;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            font-size: 0.75rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
         .form-check-input:checked {
             background-color: var(--primary);
             border-color: var(--primary);
@@ -594,24 +544,19 @@ if (!empty($search_query)) {
     </style>
 </head>
 <body>
-    <!-- Loading overlay -->
     <div class="loading-overlay">
         <div class="spinner"></div>
     </div>
 
-    <!-- Toast Container -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1090;"></div>
 
-    <!-- Header -->
     <?php include __DIR__ . '/../includes/header.php'; ?>
     
-    <!-- Hero Section -->
     <section class="shop-hero">
         <div class="container">
             <h1 class="display-4 fw-bold mb-3">Shop HomewareOnTap</h1>
             <p class="lead mb-4">Discover our curated collection of premium home essentials</p>
             
-            <!-- Breadcrumb -->
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb justify-content-center">
                     <li class="breadcrumb-item"><a href="../index.php" class="text-white-50">Home</a></li>
@@ -621,9 +566,7 @@ if (!empty($search_query)) {
         </div>
     </section>
     
-    <!-- Main Content -->
     <div class="container">
-        <!-- Guest Notice -->
         <?php if (!$sessionManager->isLoggedIn()): ?>
         <div class="guest-notice">
             <i class="fas fa-info-circle me-2"></i>
@@ -632,19 +575,16 @@ if (!empty($search_query)) {
         <?php endif; ?>
 
         <div class="row">
-            <!-- Filter Toggle Button for Mobile -->
             <div class="col-12 filter-toggle d-lg-none mb-4">
                 <button class="btn btn-primary w-100 py-3 fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#filterCollapse" aria-expanded="false" aria-controls="filterCollapse">
                     <i class="fas fa-filter me-2"></i> Filter Products
                 </button>
             </div>
             
-            <!-- Filters Sidebar -->
             <div class="col-lg-3 mb-4">
                 <div class="collapse collapse-lg show" id="filterCollapse">
                     <div class="filter-section">
                         <form id="filterForm" method="GET" action="shop.php">
-                            <!-- Search Filter -->
                             <div class="mb-4">
                                 <h5><i class="fas fa-search me-2"></i>Search</h5>
                                 <div class="input-group">
@@ -655,7 +595,6 @@ if (!empty($search_query)) {
                                 </div>
                             </div>
                             
-                            <!-- Category Filter -->
                             <div class="mb-4">
                                 <h5><i class="fas fa-tags me-2"></i>Categories</h5>
                                 <div class="form-check mb-2">
@@ -675,7 +614,6 @@ if (!empty($search_query)) {
                                 <?php endforeach; ?>
                             </div>
                             
-                            <!-- Price Filter -->
                             <div class="mb-4">
                                 <h5><i class="fas fa-rand-sign me-2"></i>Price Range</h5>
                                 <div class="price-slider-container">
@@ -708,7 +646,6 @@ if (!empty($search_query)) {
                                 </div>
                             </div>
                             
-                            <!-- Availability Filter -->
                             <div class="mb-4">
                                 <h5><i class="fas fa-box-open me-2"></i>Availability</h5>
                                 <div class="form-check">
@@ -720,7 +657,6 @@ if (!empty($search_query)) {
                                 </div>
                             </div>
                             
-                            <!-- Rating Filter -->
                             <div class="mb-4">
                                 <h5><i class="fas fa-star me-2"></i>Rating</h5>
                                 <?php for ($i = 4; $i >= 1; $i--): ?>
@@ -744,7 +680,6 @@ if (!empty($search_query)) {
                                 <?php endif; ?>
                             </div>
                             
-                            <!-- Sort Options -->
                             <div class="mb-4">
                                 <h5><i class="fas fa-sort me-2"></i>Sort By</h5>
                                 <select class="form-select py-2" name="sort">
@@ -756,7 +691,6 @@ if (!empty($search_query)) {
                                 </select>
                             </div>
                             
-                            <!-- Filter Buttons -->
                             <div class="d-grid gap-2">
                                 <button type="submit" class="btn btn-primary py-2 fw-semibold">
                                     <i class="fas fa-check me-2"></i>Apply Filters
@@ -770,9 +704,7 @@ if (!empty($search_query)) {
                 </div>
             </div>
             
-            <!-- Products Grid -->
             <div class="col-lg-9">
-                <!-- Results Header -->
                 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
                     <p class="results-count mb-2">
                         Showing <strong><?php echo ($page - 1) * $limit + 1; ?>-<?php echo min($page * $limit, $total_products); ?></strong> of <strong><?php echo $total_products; ?></strong> product<?php echo $total_products !== 1 ? 's' : ''; ?>
@@ -781,17 +713,12 @@ if (!empty($search_query)) {
                         <?php endif; ?>
                     </p>
                     
-                    <!-- View Options -->
                     <div class="view-options">
                         <button type="button" class="view-option-btn active" id="gridViewBtn" data-bs-toggle="tooltip" title="Grid View">
                             <i class="fas fa-th"></i>
                         </button>
                         <button type="button" class="view-option-btn" id="listViewBtn" data-bs-toggle="tooltip" title="List View">
                             <i class="fas fa-list"></i>
-                        </button>
-                        <button type="button" class="view-option-btn position-relative" data-bs-toggle="offcanvas" data-bs-target="#cartOffcanvas" data-bs-placement="bottom" title="View Cart">
-                            <i class="fas fa-shopping-cart"></i>
-                            <span class="cart-count-badge">0</span>
                         </button>
                         <?php if ($sessionManager->isLoggedIn()): ?>
                         <a href="<?php echo SITE_URL; ?>/pages/account/shop.php" class="view-option-btn" data-bs-toggle="tooltip" title="Account Shop">
@@ -801,7 +728,6 @@ if (!empty($search_query)) {
                     </div>
                 </div>
                 
-                <!-- Products Grid -->
                 <div class="row" id="productsContainer">
                     <?php 
                     if (count($products) > 0) {
@@ -814,14 +740,12 @@ if (!empty($search_query)) {
                             <div class="product-card">
                                 <div class="product-image position-relative">
                                     <a href="product-detail.php?id=<?php echo $product['id']; ?>">
-                                        <img class="lazy-image" 
-                                             data-src="<?php echo SITE_URL; ?>/assets/img/products/primary/<?php echo !empty($product['image']) ? htmlspecialchars($product['image']) : 'default-product.jpg'; ?>" 
-                                             src="<?php echo SITE_URL; ?>/assets/img/products/primary/placeholder.jpg"
+                                        <img src="<?php echo SITE_URL; ?>/assets/img/products/primary/<?php echo !empty($product['image']) ? htmlspecialchars($product['image']) : 'default-product.jpg'; ?>" 
                                              alt="<?php echo htmlspecialchars($product['name']); ?>"
+                                             style="width: 100%; height: 100%; object-fit: cover;"
                                              onerror="this.onerror=null; this.src='<?php echo SITE_URL; ?>/assets/img/products/primary/default-product.jpg'">
                                     </a>
                                     
-                                    <!-- Product Badges -->
                                     <?php 
                                     if ($product['stock_quantity'] < 10 && $product['stock_quantity'] > 0) {
                                         echo '<span class="product-badge sale">Low Stock</span>';
@@ -834,10 +758,6 @@ if (!empty($search_query)) {
                                         echo '<span class="product-badge new">New</span>';
                                     }
                                     ?>
-                                    
-                                    <button class="quick-view-btn quick-view" data-product-id="<?php echo $product['id']; ?>" title="Quick View">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
                                 </div>
                                 <div class="product-info">
                                     <h3 class="product-title">
@@ -851,22 +771,6 @@ if (!empty($search_query)) {
                                     <div class="product-rating mb-2">
                                         <?php echo generateStarRating($product_rating); ?>
                                         <span class="ms-1 text-muted small">(<?php echo $review_count; ?>)</span>
-                                    </div>
-                                    
-                                    <!-- Quick Actions -->
-                                    <div class="d-flex justify-content-end mb-3">
-                                        <button class="btn btn-sm btn-outline-primary quick-add me-2" 
-                                                data-product-id="<?php echo $product['id']; ?>"
-                                                data-stock="<?php echo $product['stock_quantity']; ?>"
-                                                <?php echo $product['stock_quantity'] == 0 ? 'disabled' : ''; ?>
-                                                title="Quick Add to Cart">
-                                            <i class="fas fa-cart-plus"></i> Quick Add
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-secondary quick-view" 
-                                                data-product-id="<?php echo $product['id']; ?>"
-                                                title="Quick View">
-                                            <i class="fas fa-eye"></i> Quick View
-                                        </button>
                                     </div>
                                     
                                     <div class="product-actions">
@@ -905,7 +809,6 @@ if (!empty($search_query)) {
                     <?php } ?>
                 </div>
                 
-                <!-- Pagination -->
                 <?php if ($total_pages > 1): ?>
                 <nav aria-label="Product pagination" class="mt-5">
                     <ul class="pagination justify-content-center">
@@ -945,43 +848,8 @@ if (!empty($search_query)) {
         </div>
     </div>
     
-    <!-- Cart Offcanvas -->
-    <div class="offcanvas offcanvas-end" tabindex="-1" id="cartOffcanvas">
-        <div class="offcanvas-header">
-            <h5 class="offcanvas-title">Your Shopping Cart</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-        </div>
-        <div class="offcanvas-body">
-            <div id="cart-items-container">
-                <div class="text-center py-5">
-                    <i class="fas fa-shopping-cart fa-3x text-muted mb-3"></i>
-                    <p class="text-muted">Your cart is empty</p>
-                    <a href="shop.php" class="btn btn-primary">Continue Shopping</a>
-                </div>
-            </div>
-        </div>
-        <div class="offcanvas-footer p-3 border-top">
-            <div class="d-flex justify-content-between mb-3">
-                <strong>Subtotal:</strong>
-                <strong id="cart-subtotal">R0.00</strong>
-            </div>
-            <div class="d-grid gap-2">
-                <a href="<?php echo SITE_URL; ?>/pages/cart.php" class="btn btn-outline-primary">View Full Cart</a>
-                <?php if ($sessionManager->isLoggedIn()): ?>
-                    <a href="<?php echo SITE_URL; ?>/pages/checkout.php" class="btn btn-primary">Proceed to Checkout</a>
-                <?php else: ?>
-                    <a href="<?php echo SITE_URL; ?>/pages/auth/login.php?redirect=checkout" class="btn btn-primary">
-                        <i class="fas fa-sign-in-alt me-2"></i>Login to Checkout
-                    </a>
-                <?php endif; ?>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Footer -->
     <?php include __DIR__ . '/../includes/footer.php'; ?>
     
-    <!-- JavaScript Libraries -->
     <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="<?php echo SITE_URL; ?>/lib/wow/wow.min.js"></script>
@@ -993,7 +861,6 @@ if (!empty($search_query)) {
     <script src="<?php echo SITE_URL; ?>/lib/tempusdominus/js/moment-timezone.min.js"></script>
     <script src="<?php echo SITE_URL; ?>/lib/tempusdominus/js/tempusdominus-bootstrap-4.min.js"></script>
 
-    <!-- Template Javascript -->
     <script src="<?php echo SITE_URL; ?>/js/main.js"></script>
     
     <script>
@@ -1006,7 +873,7 @@ if (!empty($search_query)) {
             // Initialize cart count
             updateCartCount();
             
-            // Initialize lazy loading for images
+            // Initialize lazy loading for images - NOW DIRECT LOADING
             initLazyLoading();
             
             // Dual range slider functionality
@@ -1100,24 +967,27 @@ if (!empty($search_query)) {
             // Initialize tooltips
             $('[data-bs-toggle="tooltip"]').tooltip();
             
-            // Load cart items when offcanvas is shown
-            $('#cartOffcanvas').on('shown.bs.offcanvas', function () {
-                loadCartItems();
-            });
-            
-            // Event listeners for quick actions and add to cart buttons using delegation
-            $('#productsContainer').on('click', '.quick-add, .btn-add-cart', function(e) {
+            // Event listeners for add to cart buttons using delegation
+            // ENHANCED ADD TO CART EVENT LISTENER START
+            $('#productsContainer').on('click', '.btn-add-cart', function(e) {
                 e.preventDefault();
-                const productId = $(this).data('product-id');
-                const element = this;
-                addToCart(productId, 1, element);
+                const $button = $(this);
+                const productId = $button.data('product-id');
+                const productName = $button.closest('.product-card').find('.product-title').text().trim();
+                
+                console.log('🛒 Add to Cart Clicked:');
+                console.log('   Product ID:', productId);
+                console.log('   Product Name:', productName);
+                
+                if (!productId) {
+                    console.error('❌ No product ID found on button');
+                    showToast('Error: Could not add product to cart', 'error');
+                    return;
+                }
+                
+                addToCart(productId, 1, this);
             });
-
-            $('#productsContainer').on('click', '.quick-view-btn, .quick-view', function(e) {
-                e.preventDefault();
-                const productId = $(this).data('product-id');
-                showQuickView(productId);
-            });
+            // ENHANCED ADD TO CART EVENT LISTENER END
 
             // Event listener for wishlist buttons (only for logged-in users)
             if (IS_LOGGED_IN) {
@@ -1130,11 +1000,6 @@ if (!empty($search_query)) {
             }
         });
         
-        // Quick view function
-        function showQuickView(productId) {
-            window.location.href = 'product-detail.php?id=' + productId;
-        }
-
         // Show login required message
         function showLoginRequired() {
             showToast('Please login to use wishlist features', 'warning');
@@ -1143,30 +1008,25 @@ if (!empty($search_query)) {
             }, 2000);
         }
 
-        // --- Performance Optimization JS: Lazy loading for product images ---
+        // --- Image Loading JS: Replaced Lazy loading with Direct Loading ---
         function initLazyLoading() {
-            const lazyImages = document.querySelectorAll('img[data-src]');
+            console.log('Loading product images...');
+            const productImages = document.querySelectorAll('.product-image img');
             
-            if ('IntersectionObserver' in window) {
-                const imageObserver = new IntersectionObserver((entries, observer) => {
-                    entries.forEach(entry => {
-                        if (entry.isIntersecting) {
-                            const img = entry.target;
-                            img.src = img.dataset.src;
-                            img.removeAttribute('data-src');
-                            observer.unobserve(img);
-                        }
-                    });
-                });
+            productImages.forEach(img => {
+                const currentSrc = img.src;
+                console.log('Loading image:', currentSrc);
                 
-                lazyImages.forEach(img => imageObserver.observe(img));
-            } else {
-                // Fallback for browsers that do not support IntersectionObserver
-                lazyImages.forEach(img => {
-                    img.src = img.dataset.src;
-                    img.removeAttribute('data-src');
-                });
-            }
+                // Force reload and handle errors
+                img.onload = function() {
+                    console.log('✅ Image loaded successfully:', currentSrc);
+                };
+                
+                img.onerror = function() {
+                    console.error('❌ Failed to load image:', currentSrc);
+                    this.src = '<?php echo SITE_URL; ?>/assets/img/products/primary/default-product.jpg';
+                };
+            });
         }
         
         // Enhanced addToCart function
@@ -1223,12 +1083,8 @@ if (!empty($search_query)) {
                         element.innerHTML = originalText;
                         $(element).removeClass('btn-success');
                         
-                        // Restore original button class based on quick add or main button
-                        if ($(element).hasClass('quick-add')) {
-                            $(element).addClass('btn-outline-primary');
-                        } else {
-                            $(element).addClass('btn-primary');
-                        }
+                        // Restore original button class
+                        $(element).addClass('btn-primary');
                         element.disabled = false;
                     }, 2000);
                     
@@ -1240,12 +1096,7 @@ if (!empty($search_query)) {
                 // Restore original state and show error
                 element.innerHTML = originalText;
                 element.disabled = false;
-                
-                if ($(element).hasClass('quick-add')) {
-                    $(element).addClass('btn-outline-primary');
-                } else {
-                    $(element).addClass('btn-primary');
-                }
+                $(element).addClass('btn-primary');
                 
                 console.error('Add to cart error:', error);
                 showToast(error.message || 'Network error. Please try again.', 'error');
@@ -1320,8 +1171,10 @@ if (!empty($search_query)) {
             }
         }
         
-        // Enhanced updateCartCount function
+        // ENHANCED updateCartCount function START
         function updateCartCount() {
+            console.log('🛒 Updating cart count...');
+            
             $.ajax({
                 url: CART_CONTROLLER_URL,
                 type: 'POST',
@@ -1329,103 +1182,29 @@ if (!empty($search_query)) {
                     action: 'get_cart_count'
                 },
                 success: function(response) {
+                    console.log('Cart count response:', response);
+                    
                     try {
                         const result = JSON.parse(response);
                         if (result.success) {
-                            $('.cart-count-badge').text(result.count);
-                            console.log('Cart count updated to:', result.count);
+                            // UPDATE ALL CART COUNT ELEMENTS ON THE PAGE
+                            // Assuming .cart-count is the class for cart badge/text elements
+                            $('.cart-count').text(result.cart_count); 
+                            console.log('✅ Cart count updated to:', result.cart_count);
+                        } else {
+                            console.error('❌ Cart count error:', result.message);
                         }
                     } catch (e) {
-                        console.error('Error parsing cart count response:', e);
+                        console.error('❌ JSON parse error:', e);
+                        console.log('Raw response:', response);
                     }
                 },
                 error: function(xhr, status, error) {
-                    console.error('Error updating cart count:', error);
+                    console.error('❌ AJAX error updating cart count:', error);
                 }
             });
         }
-        
-        // Load cart items
-        function loadCartItems() {
-            $.ajax({
-                url: CART_CONTROLLER_URL,
-                type: 'POST',
-                data: {
-                    action: 'get_cart_items'
-                },
-                success: function(response) {
-                    try {
-                        const result = JSON.parse(response);
-                        if (result.success && result.items && result.items.length > 0) {
-                            let cartHtml = '';
-                            result.items.forEach(item => {
-                                cartHtml += `
-                                    <div class="cart-item d-flex align-items-center mb-3 pb-3 border-bottom">
-                                        <img src="<?php echo SITE_URL; ?>/assets/img/products/primary/${item.image || 'default-product.jpg'}" 
-                                             alt="${item.name}" 
-                                             class="rounded" 
-                                             style="width: 60px; height: 60px; object-fit: cover;"
-                                             onerror="this.src='<?php echo SITE_URL; ?>/assets/img/products/primary/default-product.jpg'">
-                                        <div class="ms-3 flex-grow-1">
-                                            <h6 class="mb-1">${item.name}</h6>
-                                            <div class="d-flex justify-content-between align-items-center">
-                                                <small class="text-muted">Qty: ${item.quantity}</small>
-                                                <strong>R${parseFloat(item.price).toFixed(2)}</strong>
-                                            </div>
-                                        </div>
-                                        <button class="btn btn-sm btn-outline-danger ms-2" onclick="removeFromCart(${item.id})">
-                                            <i class="fas fa-times"></i>
-                                        </button>
-                                    </div>
-                                `;
-                            });
-                            
-                            $('#cart-items-container').html(cartHtml);
-                            $('#cart-subtotal').text('R' + parseFloat(result.subtotal).toFixed(2));
-                        } else {
-                            $('#cart-items-container').html(`
-                                <div class="text-center py-5">
-                                    <i class="fas fa-shopping-cart fa-3x text-muted mb-3"></i>
-                                    <p class="text-muted">Your cart is empty</p>
-                                    <a href="shop.php" class="btn btn-primary">Continue Shopping</a>
-                                </div>
-                            `);
-                            $('#cart-subtotal').text('R0.00');
-                        }
-                    } catch (e) {
-                        console.error('Error parsing cart items response');
-                        showToast('Error loading cart items', 'error');
-                    }
-                },
-                error: function() {
-                    showToast('Network error loading cart items', 'error');
-                }
-            });
-        }
-        
-        // Remove from cart function
-        function removeFromCart(cartItemId) {
-            $.ajax({
-                url: CART_CONTROLLER_URL,
-                type: 'POST',
-                data: {
-                    action: 'remove_from_cart',
-                    cart_item_id: cartItemId
-                },
-                success: function(response) {
-                    try {
-                        const result = JSON.parse(response);
-                        if (result.success) {
-                            loadCartItems();
-                            updateCartCount();
-                            showToast('Item removed from cart', 'info');
-                        }
-                    } catch (e) {
-                        showToast('Error removing item from cart', 'error');
-                    }
-                }
-            });
-        }
+        // ENHANCED updateCartCount function END
         
         // Show toast notification using Bootstrap Toasts
         function showToast(message, type = 'success') {

@@ -298,8 +298,8 @@ if ($pdo) {
     --sidebar-hover: #A67B5B;
     --sidebar-active: #A67B5B;
     --sidebar-border: #A67B5B;
-    --sidebar-width: 280px;
-    --sidebar-collapsed-width: 70px;
+    --sidebar-width: 260px; /* Reduced from 280px */
+    --sidebar-collapsed-width: 60px; /* Reduced from 70px */
 }
 
 /* Main Sidebar Styles */
@@ -321,7 +321,7 @@ if ($pdo) {
 
 /* Brand Section */
 .admin-brand {
-    padding: 1.5rem 1.5rem 1rem;
+    padding: 1.25rem 1.25rem 0.75rem; /* Reduced padding */
     border-bottom: 1px solid var(--sidebar-border);
     position: relative;
     background: rgba(0, 0, 0, 0.1);
@@ -333,7 +333,7 @@ if ($pdo) {
 
 .brand-title {
     margin: 0;
-    font-size: 1.5rem;
+    font-size: 1.35rem; /* Reduced from 1.5rem */
     font-weight: 700;
     line-height: 1.2;
 }
@@ -371,7 +371,7 @@ if ($pdo) {
 
 /* Quick Stats */
 .sidebar-stats {
-    padding: 1rem 1.5rem;
+    padding: 0.75rem 1.25rem; /* Reduced padding */
     border-bottom: 1px solid var(--sidebar-border);
 }
 
@@ -386,13 +386,13 @@ if ($pdo) {
 }
 
 .stat-icon {
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2.25rem; /* Reduced from 2.5rem */
+    height: 2.25rem; /* Reduced from 2.5rem */
     border-radius: 0.5rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-right: 0.75rem;
+    margin-right: 0.625rem; /* Reduced from 0.75rem */
     font-size: 1rem;
 }
 
@@ -431,7 +431,7 @@ if ($pdo) {
 }
 
 .admin-menu .nav {
-    padding: 0 1rem;
+    padding: 0 1rem; /* Reduced from 1.5rem */
 }
 
 .nav-item {
@@ -440,7 +440,7 @@ if ($pdo) {
 
 .nav-link {
     color: var(--sidebar-color);
-    padding: 0.75rem 1rem;
+    padding: 0.625rem 0.875rem; /* Reduced padding */
     border-radius: 0.5rem;
     text-decoration: none;
     display: flex;
@@ -468,10 +468,10 @@ if ($pdo) {
 }
 
 .nav-link i:not(.dropdown-arrow) {
-    width: 1.25rem;
+    width: 1.1rem; /* Slightly reduced */
     text-align: center;
-    font-size: 1.1rem;
-    margin-right: 0.75rem;
+    font-size: 1rem; /* Slightly reduced */
+    margin-right: 0.625rem; /* Reduced from 0.75rem */
 }
 
 /* Dropdown Styles */
@@ -497,7 +497,7 @@ if ($pdo) {
 }
 
 .sub-menu .nav-link {
-    padding: 0.625rem 1rem 0.625rem 3rem;
+    padding: 0.5rem 0.875rem 0.5rem 2.5rem; /* Reduced padding */
     font-size: 0.9rem;
 }
 
@@ -508,8 +508,8 @@ if ($pdo) {
 
 /* Badges */
 .badge {
-    font-size: 0.7rem;
-    padding: 0.25rem 0.5rem;
+    font-size: 0.65rem; /* Reduced from 0.7rem */
+    padding: 0.2rem 0.4rem; /* Reduced padding */
     font-weight: 600;
 }
 
@@ -572,7 +572,7 @@ if ($pdo) {
 @media (max-width: 767.98px) {
     .admin-sidebar {
         width: 100%;
-        max-width: 300px;
+        max-width: 280px;
     }
 }
 

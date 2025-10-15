@@ -38,18 +38,14 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shopping Cart - HomewareOnTap</title>
     
-    <!-- Google Web Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
     
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/responsive.css">
     
@@ -283,14 +279,6 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
             color: var(--primary);
         }
 
-        .security-note {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            text-align: center;
-        }
-
         .payment-methods img {
             margin: 0 5px;
         }
@@ -378,15 +366,12 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
     </style>
 </head>
 <body>
-    <!-- Header -->
     <?php include '../includes/header.php'; ?>
     
-    <!-- Hero Section -->
     <section class="cart-hero">
         <div class="container">
             <h1>Shopping Cart</h1>
             
-            <!-- Breadcrumb -->
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb justify-content-center">
                     <li class="breadcrumb-item"><a href="../index.php">Home</a></li>
@@ -396,14 +381,11 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
         </div>
     </section>
     
-    <!-- Main Content -->
     <div class="container">
-        <!-- Loading overlay -->
         <div class="loading-overlay">
             <div class="spinner"></div>
         </div>
 
-        <!-- Toast Container -->
         <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
 
         <?php if ($require_login): ?>
@@ -422,7 +404,6 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
 
         <?php if (count($cart_items) > 0): ?>
         <div class="row">
-            <!-- Cart Items -->
             <div class="col-lg-8">
                 <div class="table-responsive">
                     <table class="cart-table">
@@ -485,12 +466,11 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
                         </div>
                     </div>
                     <div class="col-md-6 text-md-end">
-                        <button class="btn btn-outline" onclick="updateCart()">Update Cart</button>
+                        <button class="btn btn-outline" onclick="updateAllCartItems()">Update Cart</button>
                         <a href="shop.php" class="btn btn-outline">Continue Shopping</a>
                     </div>
                 </div>
 
-                <!-- Address Management Section -->
                 <?php if (is_logged_in()): ?>
                 <div class="address-management mt-5">
                     <h3 class="section-title">Shipping Address</h3>
@@ -534,7 +514,6 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
                 <?php endif; ?>
             </div>
             
-            <!-- Cart Summary -->
             <div class="col-lg-4">
                 <div class="cart-summary">
                     <h3 class="mb-4">Cart Summary</h3>
@@ -572,19 +551,15 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
                     <?php endif; ?>
                 </div>
                 
-                <div class="security-note">
-                    <p><i class="fas fa-lock me-2"></i> Secure checkout. All transactions are encrypted and secure.</p>
-                    <div class="payment-methods">
-                        <img src="<?php echo SITE_URL; ?>/assets/img/icons/visa.png" alt="Visa" height="30" class="me-2">
-                        <img src="<?php echo SITE_URL; ?>/assets/img/icons/mastercard.png" alt="Mastercard" height="30" class="me-2">
-                        <img src="<?php echo SITE_URL; ?>/assets/img/icons/amex.png" alt="American Express" height="30" class="me-2">
-                        <img src="<?php echo SITE_URL; ?>/assets/img/icons/payfast.png" alt="PayFast" height="30">
-                    </div>
+                <div class="payment-methods mt-3 text-center">
+                    <img src="<?php echo SITE_URL; ?>/assets/img/icons/visa.png" alt="Visa" height="30" class="me-2">
+                    <img src="<?php echo SITE_URL; ?>/assets/img/icons/mastercard.png" alt="Mastercard" height="30" class="me-2">
+                    <img src="<?php echo SITE_URL; ?>/assets/img/icons/amex.png" alt="American Express" height="30" class="me-2">
+                    <img src="<?php echo SITE_URL; ?>/assets/img/icons/payfast.png" alt="PayFast" height="30">
                 </div>
             </div>
         </div>
         <?php else: ?>
-        <!-- Empty Cart -->
         <div class="empty-cart">
             <div class="empty-cart-icon">
                 <i class="fas fa-shopping-cart"></i>
@@ -599,7 +574,6 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
         <?php endif; ?>
     </div>
 
-    <!-- Add Address Modal -->
     <div class="modal fade" id="addAddressModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -666,17 +640,16 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
         </div>
     </div>
     
-    <!-- Footer -->
     <?php include '../includes/footer.php'; ?>
     
-    <!-- Bootstrap & jQuery JS -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
-    <!-- Custom JS -->
     <script src="../assets/js/main.js"></script>
     
     <script>
+        console.log('Cart debugging enabled');
+        
         $(document).ready(function() {
             // Initialize tooltips
             $('[data-bs-toggle="tooltip"]').tooltip();
@@ -701,13 +674,30 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
             });
         });
         
-        // Update quantity with buttons
-        function updateQuantity(cartItemId, newQuantity) {
-            if (newQuantity < 1) newQuantity = 1;
-            
-            // Show loading state
+        // ==========================================================
+        // CartManager Integration and Fallback Functions
+        // ==========================================================
+        
+        // Fallback function for updating quantity (original AJAX logic)
+        function fallbackUpdateQuantity(cartItemId, newQuantity) {
+            console.log('Executing fallbackUpdateQuantity (AJAX)...');
             const $input = $(`input[data-product-id="${cartItemId}"]`);
+            // Set old value before any operation
+            const oldValue = $input.data('oldValue');
             $input.prop('disabled', true);
+            
+            // Get the current row
+            const $row = $input.closest('tr');
+            // Extract item price (Unit Price column, index 1)
+            const priceText = $row.find('td').eq(1).text().replace('R', '').replace(/,/g, '');
+            const price = parseFloat(priceText);
+            
+            if (isNaN(price)) {
+                console.error('Could not parse item price:', priceText);
+                showToast('Error: Could not determine item price.', 'error');
+                $input.prop('disabled', false).val(oldValue);
+                return;
+            }
             
             $.ajax({
                 url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
@@ -720,60 +710,212 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
                 success: function(response) {
                     $input.prop('disabled', false);
                     try {
+                        console.log('Update success response:', response);
                         const data = JSON.parse(response);
                         if (data.success) {
                             // Update the input value
                             $input.val(newQuantity);
                             
-                            // Update the total price for this item
-                            const price = parseFloat($input.closest('tr').find('.cart-price').first().text().replace('R', ''));
-                            $input.closest('tr').find('.cart-price').last().text('R' + (price * newQuantity).toFixed(2));
+                            // Update the total price for this item (Total column, index 3)
+                            $row.find('td').eq(3).text('R' + (price * newQuantity).toFixed(2));
                             
-                            // Update the cart summary
-                            updateCartSummary(data.cart_total, data.shipping_cost, data.tax_amount, data.grand_total);
+                            // Update the cart summary using the 'summary' object from the controller
+                            const summary = data.summary;
+                            updateCartSummary(summary.subtotal, summary.shipping_cost, summary.tax_amount, summary.grand_total);
                             
                             // Update cart count in header
                             updateCartCount();
                             
                             showToast('Cart updated successfully!', 'success');
+                            
+                            // Revert value for next operation's oldValue storage
+                            $input.data('oldValue', newQuantity); 
                         } else {
+                            console.error('Server reported error:', data.message);
                             showToast('Error: ' + data.message, 'error');
-                            // Revert input value
-                            $input.val($input.data('old-value'));
+                            // Revert input value on failure
+                            $input.val(oldValue);
                         }
                     } catch (e) {
+                        console.error('Error parsing JSON response or processing data:', e, 'Raw response:', response);
                         showToast('Error updating cart', 'error');
-                        $input.val($input.data('old-value'));
+                        $input.val(oldValue);
                     }
                 },
-                error: function() {
+                error: function(jqXHR, textStatus, errorThrown) {
                     $input.prop('disabled', false);
-                    showToast('Error updating cart', 'error');
-                    $input.val($input.data('old-value'));
+                    console.error('AJAX Error:', textStatus, errorThrown, jqXHR.responseText);
+                    showToast('Error updating cart (Network/Server)', 'error');
+                    $input.val(oldValue);
                 }
             });
         }
+        
+        // Update quantity with buttons - USE CART MANAGER or FALLBACK
+        function updateQuantity(cartItemId, newQuantity) {
+            console.log('Updating item:', cartItemId, 'to quantity:', newQuantity);
+            if (newQuantity < 1) newQuantity = 1;
+            
+            // Use CartManager instead of direct AJAX
+            if (window.cartManager) {
+                // Modified to use the promise-based logging provided in the prompt's suggested debug code
+                window.cartManager.updateQuantity(cartItemId, newQuantity)
+                    .then(result => console.log('Update result (CartManager):', result))
+                    .catch(error => console.error('Update error (CartManager):', error));
+            } else {
+                console.error('CartManager not found! Using fallback AJAX.');
+                // Fallback to original AJAX
+                fallbackUpdateQuantity(cartItemId, newQuantity);
+            }
+        }
+        
+        // Fallback function for applying coupon (original AJAX logic)
+        function fallbackApplyCoupon(couponCode) {
+            showLoading(true);
+            
+            $.ajax({
+                url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
+                method: 'POST',
+                data: {
+                    action: 'apply_coupon',
+                    coupon_code: couponCode
+                },
+                success: function(response) {
+                    showLoading(false);
+                    try {
+                        const data = JSON.parse(response);
+                        if (data.success) {
+                            $('#discount-row').show();
+                            // Use summary object for updated totals
+                            const summary = data.summary;
+                            const discountAmount = summary.subtotal_discount || 0; // Assuming the summary provides a discount value
+                            
+                            $('#discount-amount').text('R' + parseFloat(discountAmount).toFixed(2));
+                            updateCartSummary(summary.subtotal, summary.shipping_cost, summary.tax_amount, summary.grand_total);
+                            showToast('Coupon applied successfully!', 'success');
+                        } else {
+                            showToast('Error: ' + data.message, 'error');
+                        }
+                    } catch (e) {
+                        showToast('Error applying coupon', 'error');
+                    }
+                },
+                error: function() {
+                    showLoading(false);
+                    showToast('Error applying coupon', 'error');
+                }
+            });
+        }
+        
+        // Apply coupon - USE CART MANAGER or FALLBACK
+        function applyCoupon() {
+            const couponCode = $('#couponCode').val().trim();
+            if (!couponCode) {
+                showToast('Please enter a coupon code', 'error');
+                return;
+            }
+            
+            if (window.cartManager) {
+                window.cartManager.applyCoupon(couponCode);
+            } else {
+                // Fallback to original AJAX
+                fallbackApplyCoupon(couponCode);
+            }
+        }
+        
+        // ==========================================================
+        // Unmodified Functions (Keep using existing logic/AJAX)
+        // ==========================================================
         
         // Update quantity with input field
         function updateQuantityInput(input) {
             const $input = $(input);
             const cartItemId = $input.data('product-id');
-            const newQuantity = parseInt($input.val());
+            let newQuantity = parseInt($input.val());
             
             // Store old value for revert
-            $input.data('old-value', $input.val());
+            $input.data('oldValue', $input.data('oldValue') || $input.val());
             
             if (isNaN(newQuantity) || newQuantity < 1) {
-                $input.val(1);
-                updateQuantity(cartItemId, 1);
-            } else {
+                newQuantity = 1;
+                $input.val(newQuantity);
+            }
+            
+            // Only update if quantity changed
+            if (newQuantity !== parseInt($input.data('oldValue'))) {
                 updateQuantity(cartItemId, newQuantity);
             }
+        }
+        
+        // Update all cart items at once
+        function updateAllCartItems() {
+            showLoading(true);
+            
+            const updates = [];
+            $('.qty-input').each(function() {
+                const cartItemId = $(this).data('product-id');
+                const quantity = parseInt($(this).val());
+                
+                if (!isNaN(quantity) && quantity > 0) {
+                    updates.push({
+                        cart_item_id: cartItemId,
+                        quantity: quantity
+                    });
+                }
+            });
+            
+            if (updates.length === 0) {
+                showLoading(false);
+                showToast('No items to update', 'warning');
+                return;
+            }
+            
+            $.ajax({
+                url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
+                method: 'POST',
+                data: {
+                    action: 'update_all_cart_items',
+                    // NOTE: This controller action expects an array of updates/removals
+                    // The backend needs to be robust to handle this array
+                    updates: JSON.stringify(updates) 
+                },
+                success: function(response) {
+                    showLoading(false);
+                    try {
+                        const data = JSON.parse(response);
+                        if (data.success) {
+                            // Update the cart summary
+                            const summary = data.summary;
+                            updateCartSummary(summary.subtotal, summary.shipping_cost, summary.tax_amount, summary.grand_total);
+                            
+                            // Update cart count in header
+                            updateCartCount();
+                            
+                            showToast('Cart updated successfully!', 'success');
+                            
+                            // Reload page to reflect any stock/item count changes
+                            setTimeout(() => {
+                                location.reload();
+                            }, 1000);
+                        } else {
+                            showToast('Error: ' + data.message, 'error');
+                        }
+                    } catch (e) {
+                        showToast('Error updating cart', 'error');
+                    }
+                },
+                error: function() {
+                    showLoading(false);
+                    showToast('Error updating cart', 'error');
+                }
+            });
         }
         
         // Remove item from cart
         function removeFromCart(cartItemId) {
             if (confirm('Are you sure you want to remove this item from your cart?')) {
+                showLoading(true);
+                
                 $.ajax({
                     url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
                     method: 'POST',
@@ -782,15 +924,17 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
                         cart_item_id: cartItemId
                     },
                     success: function(response) {
+                        showLoading(false);
                         try {
                             const data = JSON.parse(response);
                             if (data.success) {
-                                // Remove the row from the table
+                                // Remove the row from the table with animation
                                 $(`input[data-product-id="${cartItemId}"]`).closest('tr').fadeOut(300, function() {
                                     $(this).remove();
                                     
                                     // Update the cart summary
-                                    updateCartSummary(data.cart_total, data.shipping_cost, data.tax_amount, data.grand_total);
+                                    const summary = data.summary;
+                                    updateCartSummary(summary.subtotal, summary.shipping_cost, summary.tax_amount, summary.grand_total);
                                     
                                     // Update cart count in header
                                     updateCartCount();
@@ -812,6 +956,7 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
                         }
                     },
                     error: function() {
+                        showLoading(false);
                         showToast('Error removing item from cart', 'error');
                     }
                 });
@@ -820,10 +965,21 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
         
         // Update cart summary
         function updateCartSummary(cartTotal, shippingCost, taxAmount, grandTotal) {
+            // NOTE: The PHP logic calculates all these values before page load.
+            // This function uses the values returned by the AJAX controller action.
+            
+            // Subtotal
             $('.summary-item:eq(0) span:last').text('R' + parseFloat(cartTotal).toFixed(2));
+            // Shipping
             $('.summary-item:eq(1) span:last').text('R' + parseFloat(shippingCost).toFixed(2));
+            // Tax
             $('.summary-item:eq(2) span:last').text('R' + parseFloat(taxAmount).toFixed(2));
-            $('.summary-item:eq(4) span:last').text('R' + parseFloat(grandTotal).toFixed(2));
+            
+            // Total (Grand Total)
+            // It uses the special class summary-total for the last row
+            $('.summary-item.summary-total span:last').text('R' + parseFloat(grandTotal).toFixed(2));
+            
+            // The discount row visibility must be handled separately when applyCoupon is successful.
         }
         
         // Update cart count
@@ -838,55 +994,13 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
                     try {
                         const data = JSON.parse(response);
                         if (data.success) {
-                            $('.cart-count').text(data.count);
+                            $('.cart-count').text(data.cart_count); // Use data.cart_count based on controller output
                         }
                     } catch (e) {
                         console.error('Error updating cart count');
                     }
                 }
             });
-        }
-        
-        // Apply coupon code
-        function applyCoupon() {
-            const couponCode = $('#couponCode').val();
-            if (!couponCode) {
-                showToast('Please enter a coupon code', 'error');
-                return;
-            }
-            
-            $.ajax({
-                url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
-                method: 'POST',
-                data: {
-                    action: 'apply_coupon',
-                    coupon_code: couponCode
-                },
-                success: function(response) {
-                    try {
-                        const data = JSON.parse(response);
-                        if (data.success) {
-                            $('#discount-row').show();
-                            $('#discount-amount').text('R' + parseFloat(data.discount_amount).toFixed(2));
-                            updateCartSummary(data.cart_total, data.shipping_cost, data.tax_amount, data.grand_total);
-                            showToast('Coupon applied successfully!', 'success');
-                        } else {
-                            showToast('Error: ' + data.message, 'error');
-                        }
-                    } catch (e) {
-                        showToast('Error applying coupon', 'error');
-                    }
-                },
-                error: function() {
-                    showToast('Error applying coupon', 'error');
-                }
-            });
-        }
-        
-        // Update entire cart
-        function updateCart() {
-            // This would update all quantities at once
-            showToast('Cart updated successfully!', 'success');
         }
         
         // Save address from cart page
@@ -913,8 +1027,8 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
             
             // Validate required fields
             for (let key in formData) {
-                if (key !== 'set_default' && formData[key] === '') {
-                    alert('Please fill in all required fields');
+                if (key !== 'set_default' && key !== 'type' && formData[key] === '') {
+                    showToast('Please fill in all required fields', 'warning');
                     return;
                 }
             }
@@ -964,6 +1078,15 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
             // Check the radio button
             const radio = card.querySelector('input[type="radio"]');
             radio.checked = true;
+        }
+        
+        // Show loading overlay
+        function showLoading(show) {
+            if (show) {
+                $('.loading-overlay').fadeIn();
+            } else {
+                $('.loading-overlay').fadeOut();
+            }
         }
         
         // Show toast notification

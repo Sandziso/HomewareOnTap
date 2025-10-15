@@ -15,15 +15,223 @@ function getDBConnection() {
     static $pdo = null;
     if ($pdo === null) {
         try {
-            // NOTE: Assumes a Database class is available for configuration
-            $database = new Database();
-            $pdo = $database->getConnection();
-        } catch (Exception $e) {
+            $host = '127.0.0.1';
+            $dbname = 'homewareontap_db';
+            $username = 'root';
+            $password = '';
+            
+            $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
+            $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
             error_log("Database connection error: " . $e->getMessage());
             return null;
         }
     }
     return $pdo;
+}
+
+// ===================== DASHBOARD STATISTICS FUNCTIONS =====================
+
+/**
+ * Get dashboard statistics for admin
+ */
+function getDashboardStatistics($pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
+    if (!$pdo) return [];
+    
+    try {
+        $stats = [];
+        
+        // Total orders count
+        $orderCountStmt = $pdo->prepare("SELECT COUNT(*) as count FROM orders");
+        $orderCountStmt->execute();
+        $stats['orderCount'] = $orderCountStmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+        // Total revenue (sum of completed orders)
+        $revenueStmt = $pdo->prepare("SELECT COALESCE(SUM(total_amount), 0) as revenue FROM orders WHERE status = 'completed'");
+        $revenueStmt->execute();
+        $stats['revenue'] = $revenueStmt->fetch(PDO::FETCH_ASSOC)['revenue'];
+
+        // Total customers count
+        $customerCountStmt = $pdo->prepare("SELECT COUNT(*) as count FROM users WHERE role = 'customer' AND status = 1");
+        $customerCountStmt->execute();
+        $stats['customerCount'] = $customerCountStmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+        // Low stock products count
+        $lowStockStmt = $pdo->prepare("SELECT COUNT(*) as count FROM products WHERE stock_quantity <= stock_alert AND status = 1");
+        $lowStockStmt->execute();
+        $stats['lowStockCount'] = $lowStockStmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+        // Pending orders count
+        $pendingOrderStmt = $pdo->prepare("SELECT COUNT(*) as count FROM orders WHERE status = 'pending'");
+        $pendingOrderStmt->execute();
+        $stats['pendingOrders'] = $pendingOrderStmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+
+        // Recent orders with customer names
+        $recentOrdersStmt = $pdo->prepare("
+            SELECT o.*, u.first_name, u.last_name 
+            FROM orders o 
+            LEFT JOIN users u ON o.user_id = u.id 
+            ORDER BY o.created_at DESC 
+            LIMIT 5
+        ");
+        $recentOrdersStmt->execute();
+        $stats['recentOrders'] = $recentOrdersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Sales data for chart (last 7 days)
+        $salesChartStmt = $pdo->prepare("
+            SELECT 
+                DATE(created_at) as date,
+                COUNT(*) as order_count,
+                COALESCE(SUM(total_amount), 0) as daily_revenue
+            FROM orders 
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+        ");
+        $salesChartStmt->execute();
+        $stats['salesData'] = $salesChartStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Category sales data
+        $categorySalesStmt = $pdo->prepare("
+            SELECT 
+                c.name as category_name,
+                COALESCE(COUNT(DISTINCT o.id), 0) as order_count,
+                COALESCE(SUM(oi.quantity), 0) as items_sold,
+                COALESCE(SUM(oi.subtotal), 0) as revenue
+            FROM categories c
+            LEFT JOIN products p ON c.id = p.category_id AND p.status = 1
+            LEFT JOIN order_items oi ON p.id = oi.product_id
+            LEFT JOIN orders o ON oi.order_id = o.id AND o.status = 'completed'
+            WHERE c.status = 1
+            GROUP BY c.id, c.name
+            HAVING revenue > 0 OR items_sold > 0
+            ORDER BY revenue DESC, items_sold DESC
+            LIMIT 6
+        ");
+        $categorySalesStmt->execute();
+        $stats['categorySales'] = $categorySalesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Top selling products
+        $topProductsStmt = $pdo->prepare("
+            SELECT 
+                p.name,
+                p.sku,
+                COUNT(oi.id) as units_sold,
+                COALESCE(SUM(oi.subtotal), 0) as revenue
+            FROM products p
+            LEFT JOIN order_items oi ON p.id = oi.product_id
+            LEFT JOIN orders o ON oi.order_id = o.id AND o.status = 'completed'
+            WHERE p.status = 1
+            GROUP BY p.id, p.name, p.sku
+            ORDER BY units_sold DESC, revenue DESC
+            LIMIT 5
+        ");
+        $topProductsStmt->execute();
+        $stats['topProducts'] = $topProductsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return $stats;
+        
+    } catch (PDOException $e) {
+        error_log("Dashboard statistics error: " . $e->getMessage());
+        // Return default values if query fails
+        return [
+            'orderCount' => 0,
+            'revenue' => 0,
+            'customerCount' => 0,
+            'lowStockCount' => 0,
+            'pendingOrders' => 0,
+            'recentOrders' => [],
+            'salesData' => [],
+            'categorySales' => [],
+            'topProducts' => []
+        ];
+    }
+}
+
+/**
+ * Get sales chart data formatted for Chart.js
+ */
+function getSalesChartData($salesData) {
+    $chartLabels = [];
+    $chartRevenue = [];
+    $chartOrders = [];
+
+    $currentDate = new DateTime();
+    for ($i = 6; $i >= 0; $i--) {
+        $date = clone $currentDate;
+        $date->modify("-$i days");
+        $formattedDate = $date->format('Y-m-d');
+        
+        $found = false;
+        foreach ($salesData as $sale) {
+            if ($sale['date'] == $formattedDate) {
+                $chartLabels[] = $date->format('D');
+                $chartRevenue[] = (float)$sale['daily_revenue'];
+                $chartOrders[] = (int)$sale['order_count'];
+                $found = true;
+                break;
+            }
+        }
+        
+        if (!$found) {
+            $chartLabels[] = $date->format('D');
+            $chartRevenue[] = 0;
+            $chartOrders[] = 0;
+        }
+    }
+
+    return [
+        'labels' => $chartLabels,
+        'revenue' => $chartRevenue,
+        'orders' => $chartOrders
+    ];
+}
+
+/**
+ * Get category chart data
+ */
+function getCategoryChartData($categorySales, $pdo = null) {
+    $categoryLabels = [];
+    $categoryRevenue = [];
+    
+    if (!empty($categorySales)) {
+        foreach ($categorySales as $category) {
+            $categoryLabels[] = $category['category_name'];
+            $categoryRevenue[] = (float)$category['revenue'];
+        }
+    } else {
+        // Fallback: Get top categories by product count if no sales data
+        if ($pdo === null) {
+            $pdo = getDBConnection();
+        }
+        if ($pdo) {
+            $fallbackCategoriesStmt = $pdo->prepare("
+                SELECT c.name as category_name, COUNT(p.id) as product_count
+                FROM categories c
+                LEFT JOIN products p ON c.id = p.category_id AND p.status = 1
+                WHERE c.status = 1
+                GROUP BY c.id, c.name
+                ORDER BY product_count DESC
+                LIMIT 6
+            ");
+            $fallbackCategoriesStmt->execute();
+            $fallbackCategories = $fallbackCategoriesStmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            foreach ($fallbackCategories as $category) {
+                $categoryLabels[] = $category['category_name'];
+                $categoryRevenue[] = (float)($category['product_count'] * 100); // Simulated revenue for demo
+            }
+        }
+    }
+
+    return [
+        'labels' => $categoryLabels,
+        'revenue' => $categoryRevenue
+    ];
 }
 
 // ===================== PRODUCT FUNCTIONS =====================
@@ -58,7 +266,7 @@ function getProducts($pdo = null, $category_filter = '', $price_min = 0, $price_
         // Add price filter
         $conditions[] = "p.price BETWEEN :price_min AND :price_max";
         $params[':price_min'] = $price_min;
-            $params[':price_max'] = $price_max;
+        $params[':price_max'] = $price_max;
         
         // Add search filter
         if (!empty($search_query)) {
@@ -146,7 +354,6 @@ function getAllProducts() {
 
 /**
  * Fetch a single product by ID
- * NOTE: This function does not require the $pdo parameter, relying on getDBConnection() internally.
  */
 function getProductById($id) {
     $pdo = getDBConnection();
@@ -226,12 +433,29 @@ function getReviewCount($pdo, $product_id) {
 }
 
 /**
- * Build pagination URL
+ * Get stock status based on quantity
  */
-function buildPaginationUrl($page) {
-    $params = $_GET;
-    $params['page'] = $page;
-    return 'shop.php?' . http_build_query($params);
+function getStockStatus($stock_quantity) {
+    if ($stock_quantity > 10) return 'in';
+    if ($stock_quantity > 0) return 'low';
+    return 'out';
+}
+
+/**
+ * Get product count for a category
+ */
+function getCategoryProductCount($pdo, $category_id) {
+    if (!$pdo) return 0;
+    
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM products WHERE category_id = ? AND status = 1");
+        $stmt->execute([$category_id]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $result['count'] ?? 0;
+    } catch (PDOException $e) {
+        error_log("Category product count error: " . $e->getMessage());
+        return 0;
+    }
 }
 
 // ===================== SECURITY FUNCTIONS =====================
@@ -248,7 +472,11 @@ function validate_csrf_token($token) {
  */
 function generate_csrf_token() {
     if (empty($_SESSION['csrf_token'])) {
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        if (function_exists('random_bytes')) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        } else {
+            $_SESSION['csrf_token'] = md5(uniqid(rand(), true) . session_id());
+        }
     }
     return $_SESSION['csrf_token'];
 }
@@ -264,9 +492,12 @@ function verify_csrf_token($token) {
  * Sanitize user input
  */
 function sanitize_input($data) {
+    if (!is_string($data)) {
+        return $data;
+    }
     $data = trim($data);
     $data = stripslashes($data);
-    $data = htmlspecialchars($data);
+    $data = htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
     return $data;
 }
 
@@ -274,6 +505,9 @@ function sanitize_input($data) {
  * Sanitize user input (alternative version)
  */
 function sanitize_user_input($data) {
+    if (!is_string($data)) {
+        return $data;
+    }
     return htmlspecialchars(strip_tags(trim($data)), ENT_QUOTES, 'UTF-8');
 }
 
@@ -281,7 +515,6 @@ function sanitize_user_input($data) {
 
 /**
  * Get the current user's or session's cart ID.
- * MOVED from CartController.php
  */
 function getCurrentCartId($pdo) {
     if (isset($_SESSION['user_id'])) {
@@ -303,7 +536,6 @@ function getCurrentCartId($pdo) {
 
 /**
  * Create a new cart for current user or session.
- * MOVED from CartController.php
  */
 function createCart($pdo) {
     if (isset($_SESSION['user_id'])) {
@@ -353,7 +585,6 @@ function createUserCart($pdo, $userId) {
 
 /**
  * Get a cart item by cart ID and product ID.
- * MOVED from CartController.php and used by insertOrUpdateCartItem
  */
 function getCartItem($pdo, $cart_id, $product_id) {
     $sql = "SELECT * FROM cart_items WHERE cart_id = ? AND product_id = ?";
@@ -364,7 +595,6 @@ function getCartItem($pdo, $cart_id, $product_id) {
 
 /**
  * Add or Update an item in the cart (low-level operation).
- * RENAMED from original addToCart
  */
 function insertOrUpdateCartItem($pdo, $cart_id, $product_id, $quantity, $price) {
     // Check if the item already exists in the cart
@@ -385,48 +615,147 @@ function insertOrUpdateCartItem($pdo, $cart_id, $product_id, $quantity, $price) 
 }
 
 /**
- * Update cart item quantity.
- * MOVED from CartController.php
+ * Enhanced: Update cart item quantity with better validation
  */
 function updateCartItemQuantity($pdo, $cart_item_id, $quantity) {
-    $sql = "UPDATE cart_items SET quantity = ? WHERE id = ?";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([$quantity, $cart_item_id]);
+    try {
+        if ($quantity <= 0) {
+            return removeCartItem($pdo, $cart_item_id);
+        }
+        
+        // Get cart item details with product validation
+        $stmt = $pdo->prepare("
+            SELECT ci.*, p.stock_quantity, p.price, p.status as product_status 
+            FROM cart_items ci 
+            JOIN products p ON ci.product_id = p.id 
+            WHERE ci.id = ?
+        ");
+        $stmt->execute([$cart_item_id]);
+        $cart_item = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$cart_item) {
+            return ['success' => false, 'message' => 'Cart item not found.'];
+        }
+        
+        // Validate product status and stock
+        if ($cart_item['product_status'] != 1) {
+            return ['success' => false, 'message' => 'Product is no longer available.'];
+        }
+        
+        if ($quantity > $cart_item['stock_quantity']) {
+            return [
+                'success' => false, 
+                'message' => 'Only ' . $cart_item['stock_quantity'] . ' items available in stock.',
+                'max_quantity' => $cart_item['stock_quantity']
+            ];
+        }
+        
+        // Update quantity and price (in case price changed)
+        $stmt = $pdo->prepare("
+            UPDATE cart_items 
+            SET quantity = ?, price = ?, updated_at = NOW() 
+            WHERE id = ?
+        ");
+        $stmt->execute([$quantity, $cart_item['price'], $cart_item_id]);
+
+        return [
+            'success' => true, 
+            'message' => 'Cart item updated successfully.',
+            'item_price' => $cart_item['price'],
+            'item_total' => $cart_item['price'] * $quantity
+        ];
+
+    } catch (Exception $e) {
+        error_log("Update cart item quantity error: " . $e->getMessage());
+        return ['success' => false, 'message' => 'Error updating cart item quantity.'];
+    }
 }
 
 /**
- * Remove cart item by ID.
- * MOVED from CartController.php
+ * Enhanced: Remove cart item with cart validation
  */
 function removeCartItem($pdo, $cart_item_id) {
-    $sql = "DELETE FROM cart_items WHERE id = ?";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([$cart_item_id]);
+    try {
+        // Get cart_id for validation
+        $stmt = $pdo->prepare("SELECT cart_id FROM cart_items WHERE id = ?");
+        $stmt->execute([$cart_item_id]);
+        $item = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$item) {
+            return ['success' => false, 'message' => 'Item not found in cart.'];
+        }
+        
+        // Verify the cart belongs to current user/session
+        $cart_id = $item['cart_id'];
+        if (!validateCartOwnership($pdo, $cart_id)) {
+            return ['success' => false, 'message' => 'Invalid cart access.'];
+        }
+
+        $stmt = $pdo->prepare("DELETE FROM cart_items WHERE id = ?");
+        $stmt->execute([$cart_item_id]);
+
+        return [
+            'success' => true, 
+            'message' => 'Item removed from cart successfully.',
+            'cart_id' => $cart_id
+        ];
+    } catch (PDOException $e) {
+        error_log("Remove cart item error: " . $e->getMessage());
+        return ['success' => false, 'message' => 'Database error while removing item.'];
+    }
 }
 
 /**
- * Get all items in a cart.
+ * Validate cart ownership
+ */
+function validateCartOwnership($pdo, $cart_id) {
+    if (isset($_SESSION['user_id'])) {
+        $stmt = $pdo->prepare("SELECT id FROM carts WHERE id = ? AND user_id = ?");
+        $stmt->execute([$cart_id, $_SESSION['user_id']]);
+    } else {
+        $stmt = $pdo->prepare("SELECT id FROM carts WHERE id = ? AND session_id = ?");
+        $stmt->execute([$cart_id, session_id()]);
+    }
+    return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+}
+
+/**
+ * Enhanced: Get cart items with product details and stock info
  */
 function getCartItems($pdo, $cart_id) {
-    $cart_items = [];
+    if (!$cart_id) return [];
     
-    if ($cart_id) {
-        $sql = "SELECT ci.id, ci.product_id, ci.quantity, ci.price, 
-                       p.name, p.sku, p.image, p.stock_quantity 
+    try {
+        $sql = "SELECT 
+                    ci.id, 
+                    ci.product_id, 
+                    ci.quantity, 
+                    ci.price, 
+                    p.name, 
+                    p.sku, 
+                    p.image, 
+                    p.stock_quantity,
+                    p.weight,
+                    p.dimensions,
+                    c.name as category_name,
+                    (ci.price * ci.quantity) as item_total
                 FROM cart_items ci 
                 JOIN products p ON ci.product_id = p.id 
-                WHERE ci.cart_id = ?";
+                LEFT JOIN categories c ON p.category_id = c.id
+                WHERE ci.cart_id = ? AND p.status = 1
+                ORDER BY ci.created_at DESC";
+        
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$cart_id]);
-        $cart_items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Get cart items error: " . $e->getMessage());
+        return [];
     }
-    
-    return $cart_items;
 }
 
 /**
  * Get total item count in a cart.
- * MOVED from CartController.php
  */
 function getCartItemCount($pdo, $cart_id) {
     $sql = "SELECT SUM(quantity) as total FROM cart_items WHERE cart_id = ?";
@@ -437,64 +766,7 @@ function getCartItemCount($pdo, $cart_id) {
 }
 
 /**
- * Delete a cart and all its associated items.
- */
-function deleteCart($pdo, $cart_id) {
-    try {
-        // Start transaction for integrity
-        $pdo->beginTransaction();
-        // Delete cart items first
-        $pdo->prepare("DELETE FROM cart_items WHERE cart_id = ?")->execute([$cart_id]);
-        // Delete the cart
-        $pdo->prepare("DELETE FROM carts WHERE id = ?")->execute([$cart_id]);
-        $pdo->commit();
-    } catch (PDOException $e) {
-        $pdo->rollBack();
-        error_log("Error deleting cart: " . $e->getMessage());
-        // Optionally throw exception
-    }
-}
-
-/**
- * When updating/removing cart items, verify ownership
- */
-function verifyCartItemOwnership($pdo, $cartItemId, $userId) {
-    $stmt = $pdo->prepare("
-        SELECT ci.id FROM cart_items ci 
-        JOIN carts c ON ci.cart_id = c.id 
-        WHERE ci.id = ? AND (c.user_id = ? OR c.session_id = ?)
-    ");
-    // If the user is not logged in, $userId will be null, which correctly fails the user_id check, 
-    // relying only on the session_id check.
-    $stmt->execute([$cartItemId, $userId, session_id()]);
-    return $stmt->fetch() !== false;
-}
-
-/**
- * Validate requested cart item quantity against stock
- */
-function validateCartItemStock($pdo, $productId, $requestedQuantity) {
-    // NOTE: Uses getProductById($id) which relies on getDBConnection()
-    $product = getProductById($productId);
-    
-    if (!$product || $product['status'] != 1) {
-        return ['available' => false, 'message' => 'Product not available'];
-    }
-    
-    if ($product['stock_quantity'] < $requestedQuantity) {
-        return [
-            'available' => false, 
-            'message' => "Only {$product['stock_quantity']} items available",
-            'max_available' => $product['stock_quantity']
-        ];
-    }
-    
-    return ['available' => true];
-}
-
-/**
  * Calculate total price of items in the cart (subtotal).
- * MOVED from CartController.php
  */
 function calculateCartTotal($cart_items) {
     $total = 0;
@@ -505,52 +777,33 @@ function calculateCartTotal($cart_items) {
 }
 
 /**
- * Calculate shipping cost based on cart total.
- * MOVED from CartController.php
+ * Enhanced shipping cost calculation
  */
 function calculateShippingCost($cart_total) {
     if ($cart_total == 0) return 0;
-    if ($cart_total > 500) return 0; // Free shipping over R500
-    return 50.00; // Standard shipping
+    
+    // Free shipping over R250
+    if ($cart_total >= 250) return 0;
+    
+    // Tiered shipping based on cart value
+    if ($cart_total < 100) return 60.00; // Standard shipping
+    if ($cart_total < 250) return 40.00; // Reduced shipping
+    
+    return 0;
 }
 
 /**
  * Calculate tax amount (VAT) based on cart total.
- * MOVED from CartController.php
  */
 function calculateTaxAmount($cart_total) {
     $tax_rate = 0.15; // 15% VAT
     return $cart_total * $tax_rate;
 }
 
-/**
- * Merge a guest cart into a user's cart upon login.
- */
-function mergeGuestCartWithUser($pdo, $userId, $sessionId) {
-    // Get guest cart
-    $guestCart = getCartBySession($pdo, $sessionId);
-    if (!$guestCart) return;
-    
-    // Get or create user cart
-    $userCart = getCartByUserId($pdo, $userId) ?? createUserCart($pdo, $userId);
-    
-    // Merge items
-    $guestItems = getCartItems($pdo, $guestCart['id']);
-    foreach ($guestItems as $item) {
-        // insertOrUpdateCartItem function handles checking if product already exists and updating quantity
-        insertOrUpdateCartItem($pdo, $userCart['id'], $item['product_id'], $item['quantity'], $item['price']);
-    }
-    
-    // Delete guest cart
-    deleteCart($pdo, $guestCart['id']);
-}
-
 // ===================== CART WRAPPER/API FUNCTIONS =====================
 
 /**
  * High-level function to handle adding an item to cart from an API request.
- * Creates the cart/gets product info and then calls insertOrUpdateCartItem.
- * (Requested by user)
  */
 function addToCart($product_id, $quantity) {
     $pdo = getDBConnection();
@@ -578,7 +831,6 @@ function addToCart($product_id, $quantity) {
     return [
         'success' => true, 
         'message' => 'Product added to cart',
-        // Return summary data needed by the CartManager JS class
         'data' => [
             'cart_count' => $summary['cart_count']
         ]
@@ -586,353 +838,289 @@ function addToCart($product_id, $quantity) {
 }
 
 /**
- * Calculate and return the full cart summary (total, tax, shipping, count, etc.).
- * (Requested by user)
+ * Apply coupon to cart
+ */
+function applyCouponToCart($pdo, $cart_id, $coupon_code) {
+    try {
+        // Validate coupon
+        $stmt = $pdo->prepare("
+            SELECT * FROM coupons 
+            WHERE code = ? AND status = 1 
+            AND (expires_at IS NULL OR expires_at > NOW())
+            AND (usage_limit IS NULL OR times_used < usage_limit)
+        ");
+        $stmt->execute([$coupon_code]);
+        $coupon = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$coupon) {
+            return ['success' => false, 'message' => 'Invalid or expired coupon code.'];
+        }
+        
+        // Calculate discount
+        $cart_total = calculateCartTotal(getCartItems($pdo, $cart_id));
+        $discount_amount = 0;
+        
+        if ($coupon['discount_type'] == 'percentage') {
+            $discount_amount = $cart_total * ($coupon['discount_value'] / 100);
+        } else {
+            $discount_amount = min($coupon['discount_value'], $cart_total);
+        }
+        
+        // Apply minimum cart value check
+        if ($coupon['min_cart_value'] > 0 && $cart_total < $coupon['min_cart_value']) {
+            return [
+                'success' => false, 
+                'message' => 'Minimum cart value of R' . $coupon['min_cart_value'] . ' required for this coupon.'
+            ];
+        }
+        
+        // Update cart with discount
+        $stmt = $pdo->prepare("UPDATE carts SET discount_amount = ?, coupon_code = ? WHERE id = ?");
+        $stmt->execute([$discount_amount, $coupon_code, $cart_id]);
+        
+        // Increment coupon usage
+        $stmt = $pdo->prepare("UPDATE coupons SET times_used = times_used + 1 WHERE id = ?");
+        $stmt->execute([$coupon['id']]);
+        
+        return [
+            'success' => true,
+            'message' => 'Coupon applied successfully!',
+            'discount_amount' => $discount_amount,
+            'coupon_type' => $coupon['discount_type']
+        ];
+        
+    } catch (PDOException $e) {
+        error_log("Apply coupon error: " . $e->getMessage());
+        return ['success' => false, 'message' => 'Error applying coupon.'];
+    }
+}
+
+/**
+ * Clear applied coupon
+ */
+function clearCartCoupon($pdo, $cart_id) {
+    try {
+        $stmt = $pdo->prepare("UPDATE carts SET discount_amount = 0, coupon_code = NULL WHERE id = ?");
+        return $stmt->execute([$cart_id]);
+    } catch (PDOException $e) {
+        error_log("Clear cart coupon error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Enhanced: Get cart summary with enhanced details
  */
 function getCartSummary($cart_id = null) {
     $pdo = getDBConnection();
-    if (!$pdo) return ['cart_count' => 0, 'cart_total' => 0, 'shipping_cost' => 0, 'tax_amount' => 0, 'grand_total' => 0];
-
-    // Get cart_id if not provided
+    if (!$pdo) return getEmptyCartSummary();
+    
     if (!$cart_id) {
         $cart_id = getCurrentCartId($pdo);
-        if (!$cart_id) {
-            // Return empty summary if no cart exists
-            return ['cart_count' => 0, 'cart_total' => 0, 'shipping_cost' => 0, 'tax_amount' => 0, 'grand_total' => 0];
-        }
+        if (!$cart_id) return getEmptyCartSummary();
     }
-
-    $cart_items = getCartItems($pdo, $cart_id);
     
-    // Calculate totals
-    $cart_total = calculateCartTotal($cart_items);
-    $shipping_cost = calculateShippingCost($cart_total);
-    $tax_amount = calculateTaxAmount($cart_total);
-    $grand_total = $cart_total + $shipping_cost + $tax_amount;
-    $cart_count = getCartItemCount($pdo, $cart_id);
+    try {
+        // Get cart with discount info
+        $stmt = $pdo->prepare("SELECT discount_amount, coupon_code FROM carts WHERE id = ?");
+        $stmt->execute([$cart_id]);
+        $cart = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        
+        $cart_items = getCartItems($pdo, $cart_id);
+        $cart_total = calculateCartTotal($cart_items);
+        $discount_amount = $cart['discount_amount'] ?? 0;
+        
+        // Apply discount
+        $subtotal_after_discount = max(0, $cart_total - $discount_amount);
+        
+        // Calculate other amounts
+        $shipping_cost = calculateShippingCost($subtotal_after_discount);
+        $tax_amount = calculateTaxAmount($subtotal_after_discount);
+        $grand_total = $subtotal_after_discount + $shipping_cost + $tax_amount;
+        $cart_count = getCartItemCount($pdo, $cart_id);
+        
+        // Check for low stock items
+        $low_stock_items = array_filter($cart_items, function($item) {
+            return $item['stock_quantity'] < $item['quantity'];
+        });
 
+        return [
+            'cart_count' => $cart_count,
+            'cart_total' => $cart_total,
+            'discount_amount' => $discount_amount,
+            'coupon_code' => $cart['coupon_code'] ?? null,
+            'shipping_cost' => $shipping_cost,
+            'tax_amount' => $tax_amount,
+            'grand_total' => $grand_total,
+            'items' => $cart_items,
+            'low_stock_count' => count($low_stock_items),
+            'free_shipping_threshold' => 250, // R250 for free shipping
+            'free_shipping_progress' => min(($cart_total / 250) * 100, 100)
+        ];
+        
+    } catch (PDOException $e) {
+        error_log("Get cart summary error: " . $e->getMessage());
+        return getEmptyCartSummary();
+    }
+}
+
+/**
+ * Empty cart summary template
+ */
+function getEmptyCartSummary() {
     return [
-        'cart_count' => $cart_count,
-        'cart_total' => $cart_total,
-        'shipping_cost' => $shipping_cost,
-        'tax_amount' => $tax_amount,
-        'grand_total' => $grand_total,
-        'items' => $cart_items
+        'cart_count' => 0,
+        'cart_total' => 0,
+        'discount_amount' => 0,
+        'coupon_code' => null,
+        'shipping_cost' => 0,
+        'tax_amount' => 0,
+        'grand_total' => 0,
+        'items' => [],
+        'low_stock_count' => 0,
+        'free_shipping_threshold' => 250,
+        'free_shipping_progress' => 0
     ];
 }
 
-// ===================== NOTIFICATION FUNCTIONS =====================
+// ===================== ORDER FUNCTIONS =====================
 
 /**
- * Get unread notification count for user
+ * Get orders with optional filters
  */
-function getUnreadNotificationCount($pdo, $user_id) {
-    if (!$pdo) return 0;
-    
-    try {
-        $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM user_notifications WHERE user_id = ? AND is_read = 0");
-        $stmt->execute([$user_id]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $result['count'] ?? 0;
-    } catch (PDOException $e) {
-        error_log("Notification count error: " . $e->getMessage());
-        return 0;
+function getOrders($pdo = null, $status = '', $limit = null, $offset = 0) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
     }
-}
-
-/**
- * Get user notifications with pagination
- */
-function getUserNotifications($pdo, $user_id, $limit = 10, $offset = 0) {
-    if (!$pdo) return [];
+    if (!$pdo) return ['orders' => [], 'total' => 0];
     
     try {
-        $stmt = $pdo->prepare("
-            SELECT * FROM user_notifications 
-            WHERE user_id = ? 
-            ORDER BY 
-                CASE priority 
-                    WHEN 'high' THEN 1 
-                    WHEN 'medium' THEN 2 
-                    WHEN 'low' THEN 3 
-                END,
-                created_at DESC 
-            LIMIT ? OFFSET ?
-        ");
-        $stmt->bindValue(1, $user_id, PDO::PARAM_INT);
-        $stmt->bindValue(2, $limit, PDO::PARAM_INT);
-        $stmt->bindValue(3, $offset, PDO::PARAM_INT);
+        $sql = "SELECT o.*, u.first_name, u.last_name, u.email 
+                FROM orders o 
+                LEFT JOIN users u ON o.user_id = u.id 
+                WHERE 1=1";
+        
+        $count_sql = "SELECT COUNT(*) as total FROM orders o WHERE 1=1";
+        
+        $params = [];
+        $conditions = [];
+        
+        // Add status filter
+        if (!empty($status)) {
+            $conditions[] = "o.status = :status";
+            $params[':status'] = $status;
+        }
+        
+        // Add conditions to both queries
+        if (!empty($conditions)) {
+            $where_clause = " AND " . implode(" AND ", $conditions);
+            $sql .= $where_clause;
+            $count_sql .= $where_clause;
+        }
+        
+        $sql .= " ORDER BY o.created_at DESC";
+        
+        // Add pagination
+        if ($limit !== null) {
+            $sql .= " LIMIT :limit OFFSET :offset";
+            $params[':limit'] = $limit;
+            $params[':offset'] = $offset;
+        }
+        
+        // Get orders
+        $stmt = $pdo->prepare($sql);
+        foreach ($params as $key => $value) {
+            if ($key === ':limit' || $key === ':offset') {
+                $stmt->bindValue($key, $value, PDO::PARAM_INT);
+            } else {
+                $stmt->bindValue($key, $value);
+            }
+        }
         $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Get total count
+        $count_stmt = $pdo->prepare($count_sql);
+        foreach ($params as $key => $value) {
+            if ($key !== ':limit' && $key !== ':offset') {
+                $count_stmt->bindValue($key, $value);
+            }
+        }
+        $count_stmt->execute();
+        $total = $count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
+        
+        return ['orders' => $orders, 'total' => $total];
+        
     } catch (PDOException $e) {
-        error_log("Get notifications error: " . $e->getMessage());
-        return [];
+        error_log("Orders error: " . $e->getMessage());
+        return ['orders' => [], 'total' => 0];
     }
 }
 
 /**
- * Mark notification as read
+ * Get order by ID
  */
-function markNotificationAsRead($pdo, $notification_id, $user_id) {
-    if (!$pdo) return false;
-    
-    try {
-        $stmt = $pdo->prepare("UPDATE user_notifications SET is_read = 1 WHERE id = ? AND user_id = ?");
-        $stmt->execute([$notification_id, $user_id]);
-        return $stmt->rowCount() > 0;
-    } catch (PDOException $e) {
-        error_log("Mark notification read error: " . $e->getMessage());
-        return false;
+function getOrderById($order_id, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
     }
-}
-
-/**
- * Mark all notifications as read for user
- */
-function markAllNotificationsAsRead($pdo, $user_id) {
-    if (!$pdo) return false;
-    
-    try {
-        $stmt = $pdo->prepare("UPDATE user_notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0");
-        $stmt->execute([$user_id]);
-        return $stmt->rowCount() > 0;
-    } catch (PDOException $e) {
-        error_log("Mark all notifications read error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Create a new notification for user
- */
-function createUserNotification($pdo, $user_id, $title, $message, $type = 'system', $related_id = null, $related_type = null, $action_url = null, $action_text = null, $icon = 'fas fa-bell', $priority = 'medium') {
-    if (!$pdo) return false;
-    
-    try {
-        $stmt = $pdo->prepare("
-            INSERT INTO user_notifications 
-            (user_id, title, message, type, related_id, related_type, action_url, action_text, icon, priority) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        $stmt->execute([
-            $user_id, 
-            $title, 
-            $message, 
-            $type, 
-            $related_id, 
-            $related_type, 
-            $action_url, 
-            $action_text, 
-            $icon, 
-            $priority
-        ]);
-        return $pdo->lastInsertId();
-    } catch (PDOException $e) {
-        error_log("Create notification error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Delete a notification
- */
-function deleteNotification($pdo, $notification_id, $user_id) {
-    if (!$pdo) return false;
-    
-    try {
-        $stmt = $pdo->prepare("DELETE FROM user_notifications WHERE id = ? AND user_id = ?");
-        $stmt->execute([$notification_id, $user_id]);
-        return $stmt->rowCount() > 0;
-    } catch (PDOException $e) {
-        error_log("Delete notification error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Get notification by ID
- */
-function getNotificationById($pdo, $notification_id, $user_id) {
     if (!$pdo) return null;
     
     try {
-        $stmt = $pdo->prepare("SELECT * FROM user_notifications WHERE id = ? AND user_id = ?");
-        $stmt->execute([$notification_id, $user_id]);
+        $stmt = $pdo->prepare("
+            SELECT o.*, u.first_name, u.last_name, u.email, u.phone 
+            FROM orders o 
+            LEFT JOIN users u ON o.user_id = u.id 
+            WHERE o.id = ?
+        ");
+        $stmt->execute([$order_id]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
-        error_log("Get notification by ID error: " . $e->getMessage());
+        error_log("Get order by ID error: " . $e->getMessage());
         return null;
     }
 }
 
-// ===================== PAYMENT METHOD FUNCTIONS =====================
-
 /**
- * Get user payment methods
+ * Get order items
  */
-function getUserPaymentMethods($pdo, $user_id) {
+function getOrderItems($order_id, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
     if (!$pdo) return [];
+    
     try {
-        $stmt = $pdo->prepare("SELECT * FROM user_payment_methods WHERE user_id = ? AND status = 1 ORDER BY is_default DESC, created_at DESC");
-        $stmt->execute([$user_id]);
+        $stmt = $pdo->prepare("
+            SELECT oi.*, p.name as product_name, p.image, p.sku 
+            FROM order_items oi 
+            LEFT JOIN products p ON oi.product_id = p.id 
+            WHERE oi.order_id = ?
+        ");
+        $stmt->execute([$order_id]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
-        error_log("Get payment methods error: " . $e->getMessage());
+        error_log("Get order items error: " . $e->getMessage());
         return [];
     }
 }
 
 /**
- * Add user payment method
+ * Update order status
  */
-function addUserPaymentMethod($pdo, $user_id, $card_type, $masked_card_number, $card_holder, $expiry_month, $expiry_year, $is_default = 0) {
+function updateOrderStatus($order_id, $status, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
     if (!$pdo) return false;
-    try {
-        // If setting as default, remove default from other payment methods
-        if ($is_default) {
-            $stmt = $pdo->prepare("UPDATE user_payment_methods SET is_default = 0 WHERE user_id = ?");
-            $stmt->execute([$user_id]);
-        }
-
-        $stmt = $pdo->prepare("
-            INSERT INTO user_payment_methods 
-            (user_id, card_type, masked_card_number, card_holder, expiry_month, expiry_year, is_default) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ");
-        $stmt->execute([
-            $user_id, 
-            $card_type, 
-            $masked_card_number, 
-            $card_holder, 
-            $expiry_month, 
-            $expiry_year, 
-            $is_default
-        ]);
-        return $pdo->lastInsertId();
-    } catch (PDOException $e) {
-        error_log("Add payment method error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Set default payment method
- */
-function setDefaultPaymentMethod($pdo, $payment_method_id, $user_id) {
-    if (!$pdo) return false;
-    try {
-        $pdo->beginTransaction();
-
-        // Remove default from all user payment methods
-        $stmt = $pdo->prepare("UPDATE user_payment_methods SET is_default = 0 WHERE user_id = ?");
-        $stmt->execute([$user_id]);
-        
-        // Set the specified method as default
-        $stmt = $pdo->prepare("UPDATE user_payment_methods SET is_default = 1 WHERE id = ? AND user_id = ?");
-        $stmt->execute([$payment_method_id, $user_id]);
-        
-        $pdo->commit();
-        return $stmt->rowCount() > 0;
-    } catch (PDOException $e) {
-        $pdo->rollBack();
-        error_log("Set default payment method error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Delete payment method
- */
-function deletePaymentMethod($pdo, $payment_method_id, $user_id) {
-    if (!$pdo) return false;
-    try {
-        $stmt = $pdo->prepare("DELETE FROM user_payment_methods WHERE id = ? AND user_id = ?");
-        $stmt->execute([$payment_method_id, $user_id]);
-        return $stmt->rowCount() > 0;
-    } catch (PDOException $e) {
-        error_log("Delete payment method error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Mask card number (show only last 4 digits)
- */
-function maskCardNumber($card_number) {
-    $cleaned = preg_replace('/\s+/', '', $card_number);
-    $length = strlen($cleaned);
-    if ($length <= 4) {
-        return $cleaned;
-    }
-    return '*** **** **** ' . substr($cleaned, -4);
-}
-
-/**
- * Detect card type based on number
- */
-function detectCardType($card_number) {
-    $cleaned = preg_replace('/\s+/', '', $card_number);
-    if (preg_match('/^4/', $cleaned)) {
-        return 'Visa';
-    } elseif (preg_match('/^5[1-5]/', $cleaned)) {
-        return 'MasterCard';
-    } elseif (preg_match('/^3[47]/', $cleaned)) {
-        return 'American Express';
-    } elseif (preg_match('/^6(?:011|5)/', $cleaned)) {
-        return 'Discover';
-    } else {
-        return 'Other';
-    }
-}
-
-/**
- * Validate card number using Luhn algorithm
- */
-function validateCardNumber($card_number) {
-    $cleaned = preg_replace('/\s+/', '', $card_number);
-    // Check if it's all digits and has reasonable length
-    if (!preg_match('/^\d+$/', $cleaned) || strlen($cleaned) < 13 || strlen($cleaned) > 19) {
-        return false;
-    }
-    // Luhn algorithm
-    $sum = 0;
-    $reverse = strrev($cleaned);
-    for ($i = 0; $i < strlen($reverse); $i++) {
-        $digit = (int)$reverse[$i];
-
-        if ($i % 2 === 1) {
-            $digit *= 2;
-            if ($digit > 9) {
-                $digit -= 9;
-            }
-        }
-        
-        $sum += $digit;
-    }
-    return $sum % 10 === 0;
-}
-
-/**
- * Validate expiry date
- */
-function validateExpiryDate($month, $year) {
-    $currentYear = (int)date('Y');
-    $currentMonth = (int)date('m');
-    $month = (int)$month;
-    $year = (int)$year;
     
-    // Convert two-digit year to four-digit year (simple assumption for 2000s)
-    if ($year < 100) {
-        $year += 2000;
-    }
-    
-    if ($year < $currentYear) {
+    try {
+        $stmt = $pdo->prepare("UPDATE orders SET status = ?, updated_at = NOW() WHERE id = ?");
+        return $stmt->execute([$status, $order_id]);
+    } catch (PDOException $e) {
+        error_log("Update order status error: " . $e->getMessage());
         return false;
     }
-    if ($year === $currentYear && $month < $currentMonth) {
-        return false;
-    }
-    return $month >= 1 && $month <= 12;
 }
 
 // ===================== HELPER FUNCTIONS =====================
@@ -963,17 +1151,6 @@ function generateStarRating($rating) {
     }
     
     return $html;
-}
-
-/**
- * Password strength validation
- */
-function is_password_strong($password) {
-    return strlen($password) >= 8 &&
-           preg_match('/[A-Z]/', $password) &&
-           preg_match('/[a-z]/', $password) &&
-           preg_match('/\d/', $password) &&
-           preg_match('/[^A-Za-z\d]/', $password);
 }
 
 /**
@@ -1045,6 +1222,13 @@ function is_admin() {
 }
 
 /**
+ * Check if admin is logged in
+ */
+function isAdminLoggedIn() {
+    return isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin' && isset($_SESSION['user_id']);
+}
+
+/**
  * Redirect to another page
  */
 function redirect($url) {
@@ -1063,12 +1247,9 @@ function getFeaturedProducts($limit = 6, $pdo = null) {
     
     try {
         $stmt = $pdo->prepare("
-            SELECT p.*, 
-                   COALESCE(p.discount, 0) as discount,
-                   COALESCE(p.rating, 4.5) as rating,
-                   COALESCE(p.review_count, 0) as review_count
+            SELECT p.* 
             FROM products p 
-            WHERE p.status = 1 
+            WHERE p.status = 1 AND p.is_featured = 1
             ORDER BY p.created_at DESC 
             LIMIT :limit
         ");
@@ -1077,6 +1258,58 @@ function getFeaturedProducts($limit = 6, $pdo = null) {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         error_log("Featured products error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get bestseller products
+ */
+function getBestsellerProducts($limit = 6, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
+    if (!$pdo) return [];
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT p.* 
+            FROM products p 
+            WHERE p.status = 1 AND p.is_bestseller = 1
+            ORDER BY p.created_at DESC 
+            LIMIT :limit
+        ");
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Bestseller products error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get new products
+ */
+function getNewProducts($limit = 6, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
+    if (!$pdo) return [];
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT p.* 
+            FROM products p 
+            WHERE p.status = 1 AND p.is_new = 1
+            ORDER BY p.created_at DESC 
+            LIMIT :limit
+        ");
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("New products error: " . $e->getMessage());
         return [];
     }
 }
@@ -1118,6 +1351,9 @@ function getProductsByCategory($category_id, $limit = null) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+/**
+ * Clear cart
+ */
 function clearCart($pdo) {
     $cartId = getCurrentCartId($pdo);
     if ($cartId) {
@@ -1144,18 +1380,6 @@ function clearCart($pdo) {
     return false;
 }
 
-function getCartWithCache($pdo, $cartId) {
-    $cacheKey = "cart_{$cartId}";
-    $cached = apc_fetch($cacheKey);
-    
-    if ($cached === false) {
-        $cached = getCartItems($pdo, $cartId);
-        apc_store($cacheKey, $cached, 300); // Cache for 5 minutes
-    }
-    
-    return $cached;
-}
-
 /**
  * Truncate text to a specified length
  */
@@ -1177,332 +1401,604 @@ function calculateDiscountPrice($price, $discount) {
 }
 
 /**
- * Format time elapsed string
+ * Get order status badge HTML
  */
-function time_elapsed_string(string $datetime, bool $full = false): string {
-    $now = new DateTime;
-    $ago = new DateTime($datetime);
-    $diff = $now->diff($ago);
-
-    // Calculate weeks and remaining days manually to avoid dynamic properties on DateInterval (PHP 8.2+)
-    $weeks = floor($diff->d / 7);
-    $days = $diff->d - $weeks * 7;
-
-    $string = array(
-        'y' => 'year',
-        'm' => 'month',
-        'w' => 'week',
-        'd' => 'day',
-        'h' => 'hour',
-        'i' => 'minute',
-        's' => 'second',
-    );
+function getOrderStatusBadge($status) {
+    $statusClasses = [
+        'pending' => 'status-pending',
+        'processing' => 'status-processing',
+        'completed' => 'status-completed',
+        'cancelled' => 'status-cancelled',
+        'refunded' => 'status-refunded'
+    ];
     
-    $values = array(
-        'y' => $diff->y,
-        'm' => $diff->m,
-        'w' => $weeks,
-        'd' => $days,
-        'h' => $diff->h,
-        'i' => $diff->i,
-        's' => $diff->s,
-    );
+    $class = $statusClasses[$status] ?? 'status-pending';
+    $label = ucfirst($status);
     
-    $result = array();
-    foreach ($string as $k => $v) {
-        if ($values[$k] > 0) {
-            $result[] = $values[$k] . ' ' . $v . ($values[$k] > 1 ? 's' : '');
-        }
-    }
-
-    if (!$full) $result = array_slice($result, 0, 1);
-    return $result ? implode(', ', $result) . ' ago' : 'just now';
+    return "<span class='status-badge $class'>$label</span>";
 }
 
-// ===================== USER SETTINGS FUNCTIONS =====================
+/**
+ * Generate order number
+ */
+function generateOrderNumber() {
+    return 'ORD-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -8));
+}
 
 /**
- * Get user settings/preferences
+ * Get site settings
  */
-function getUserSettings($pdo, $user_id) {
-    if (!$pdo) return null;
+function getSiteSettings($pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
+    if (!$pdo) return [];
     
     try {
-        $stmt = $pdo->prepare("
-            SELECT email_notifications, marketing_emails, two_factor_enabled, 
-                    preferred_language, timezone, email_verified, phone
-            FROM users 
-            WHERE id = ?
-        ");
-        $stmt->execute([$user_id]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        $stmt = $pdo->prepare("SELECT setting_key, setting_value FROM site_settings");
+        $stmt->execute();
+        $settings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        $result = [];
+        foreach ($settings as $setting) {
+            $result[$setting['setting_key']] = $setting['setting_value'];
+        }
+        
+        return $result;
     } catch (PDOException $e) {
-        error_log("Get user settings error: " . $e->getMessage());
-        return null;
+        error_log("Get site settings error: " . $e->getMessage());
+        return [];
     }
 }
 
 /**
- * Update user settings
+ * Get site setting by key
  */
-function updateUserSettings($pdo, $user_id, $settings) {
+function getSiteSetting($key, $default = null, $pdo = null) {
+    $settings = getSiteSettings($pdo);
+    return $settings[$key] ?? $default;
+}
+
+// ===================== VALIDATION FUNCTIONS =====================
+
+/**
+ * Validate email format
+ */
+function isValidEmail($email) {
+    return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
+}
+
+/**
+ * Validate phone number
+ */
+function isValidPhone($phone) {
+    // Remove any non-digit characters except +
+    $cleaned = preg_replace('/[^\d+]/', '', $phone);
+    return preg_match('/^(\+?[0-9]{9,15})$/', $cleaned);
+}
+
+/**
+ * Validate password strength
+ */
+function isPasswordStrong($password) {
+    return strlen($password) >= 8;
+}
+
+/**
+ * Validate required fields
+ */
+function validateRequired($data, $fields) {
+    $errors = [];
+    foreach ($fields as $field) {
+        if (empty(trim($data[$field] ?? ''))) {
+            $errors[$field] = "The $field field is required.";
+        }
+    }
+    return $errors;
+}
+
+// ===================== IMAGE HANDLING FUNCTIONS =====================
+
+/**
+ * Upload image with validation
+ */
+function uploadImage($file, $target_dir = '../assets/images/products/') {
+    if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
+        return ['success' => false, 'message' => 'File upload error.'];
+    }
+    
+    // Check file size (max 5MB)
+    if ($file['size'] > 5000000) {
+        return ['success' => false, 'message' => 'File is too large. Maximum size is 5MB.'];
+    }
+    
+    // Check file type
+    $allowed_types = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    $file_extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    
+    if (!in_array($file_extension, $allowed_types)) {
+        return ['success' => false, 'message' => 'Only JPG, JPEG, PNG, GIF, and WebP files are allowed.'];
+    }
+    
+    // Generate unique filename
+    $filename = uniqid() . '_' . time() . '.' . $file_extension;
+    $target_file = $target_dir . $filename;
+    
+    // Create directory if it doesn't exist
+    if (!is_dir($target_dir)) {
+        mkdir($target_dir, 0755, true);
+    }
+    
+    if (move_uploaded_file($file['tmp_name'], $target_file)) {
+        return ['success' => true, 'filename' => $filename, 'path' => $target_file];
+    } else {
+        return ['success' => false, 'message' => 'Failed to move uploaded file.'];
+    }
+}
+
+/**
+ * Delete image file
+ */
+function deleteImage($filename, $directory = '../assets/images/products/') {
+    $file_path = $directory . $filename;
+    if (file_exists($file_path) && is_file($file_path)) {
+        return unlink($file_path);
+    }
+    return false;
+}
+
+// ===================== INVENTORY MANAGEMENT FUNCTIONS =====================
+
+/**
+ * Update product stock quantity
+ */
+function updateProductStock($product_id, $quantity, $action = 'sold', $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
     if (!$pdo) return false;
     
     try {
-        $allowed_fields = [
-            'email_notifications', 'marketing_emails', 'two_factor_enabled',
-            'preferred_language', 'timezone', 'phone'
-        ];
+        // Get current stock
+        $product = getProductById($product_id);
+        if (!$product) return false;
         
-        $updates = [];
+        $current_stock = $product['stock_quantity'];
+        $new_stock = $current_stock;
+        
+        switch ($action) {
+            case 'sold':
+                $new_stock = $current_stock - $quantity;
+                break;
+            case 'restock':
+                $new_stock = $current_stock + $quantity;
+                break;
+            case 'adjustment':
+                $new_stock = $quantity;
+                break;
+        }
+        
+        // Ensure stock doesn't go negative
+        if ($new_stock < 0) {
+            $new_stock = 0;
+        }
+        
+        // Update product stock
+        $stmt = $pdo->prepare("UPDATE products SET stock_quantity = ?, updated_at = NOW() WHERE id = ?");
+        $result = $stmt->execute([$new_stock, $product_id]);
+        
+        // Log inventory change
+        if ($result) {
+            logInventoryChange($product_id, $action, $quantity, $current_stock, $new_stock, $pdo);
+        }
+        
+        return $result;
+        
+    } catch (PDOException $e) {
+        error_log("Update product stock error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Log inventory changes
+ */
+function logInventoryChange($product_id, $action, $quantity, $previous_stock, $new_stock, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
+    if (!$pdo) return false;
+    
+    try {
+        $user_id = get_current_user_id();
+        $stmt = $pdo->prepare("
+            INSERT INTO inventory_log 
+            (product_id, user_id, action, quantity, previous_stock, new_stock, created_at) 
+            VALUES (?, ?, ?, ?, ?, ?, NOW())
+        ");
+        return $stmt->execute([$product_id, $user_id, $action, $quantity, $previous_stock, $new_stock]);
+    } catch (PDOException $e) {
+        error_log("Log inventory change error: " . $e->getMessage());
+        return false;
+    }
+}
+
+// ===================== USER MANAGEMENT FUNCTIONS =====================
+
+/**
+ * Get all users with optional role filter
+ */
+function getUsers($pdo = null, $role = '', $limit = null, $offset = 0) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
+    if (!$pdo) return ['users' => [], 'total' => 0];
+    
+    try {
+        $sql = "SELECT * FROM users WHERE 1=1";
+        $count_sql = "SELECT COUNT(*) as total FROM users WHERE 1=1";
+        
         $params = [];
+        $conditions = [];
         
-        foreach ($settings as $key => $value) {
-            if (in_array($key, $allowed_fields)) {
-                $updates[] = "$key = ?";
-                $params[] = $value;
+        // Add role filter
+        if (!empty($role)) {
+            $conditions[] = "role = :role";
+            $params[':role'] = $role;
+        }
+        
+        // Exclude deleted users
+        $conditions[] = "deleted_at IS NULL";
+        
+        // Add conditions to both queries
+        if (!empty($conditions)) {
+            $where_clause = " AND " . implode(" AND ", $conditions);
+            $sql .= $where_clause;
+            $count_sql .= $where_clause;
+        }
+        
+        $sql .= " ORDER BY created_at DESC";
+        
+        // Add pagination
+        if ($limit !== null) {
+            $sql .= " LIMIT :limit OFFSET :offset";
+            $params[':limit'] = $limit;
+            $params[':offset'] = $offset;
+        }
+        
+        // Get users
+        $stmt = $pdo->prepare($sql);
+        foreach ($params as $key => $value) {
+            if ($key === ':limit' || $key === ':offset') {
+                $stmt->bindValue($key, $value, PDO::PARAM_INT);
+            } else {
+                $stmt->bindValue($key, $value);
             }
         }
+        $stmt->execute();
+        $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        if (empty($updates)) {
-            return false;
+        // Get total count
+        $count_stmt = $pdo->prepare($count_sql);
+        foreach ($params as $key => $value) {
+            if ($key !== ':limit' && $key !== ':offset') {
+                $count_stmt->bindValue($key, $value);
+            }
         }
+        $count_stmt->execute();
+        $total = $count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
         
-        $params[] = $user_id;
-        $sql = "UPDATE users SET " . implode(', ', $updates) . ", updated_at = NOW() WHERE id = ?";
-        $stmt = $pdo->prepare($sql);
-        return $stmt->execute($params);
+        return ['users' => $users, 'total' => $total];
         
     } catch (PDOException $e) {
-        error_log("Update user settings error: " . $e->getMessage());
-        return false;
+        error_log("Get users error: " . $e->getMessage());
+        return ['users' => [], 'total' => 0];
     }
 }
 
 /**
- * Verify current password
+ * Get user by ID
  */
-function verifyCurrentPassword($pdo, $user_id, $password) {
-    if (!$pdo) return false;
-    
-    try {
-        $stmt = $pdo->prepare("SELECT password FROM users WHERE id = ?");
-        $stmt->execute([$user_id]);
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        return $user && password_verify($password, $user['password']);
-    } catch (PDOException $e) {
-        error_log("Verify password error: " . $e->getMessage());
-        return false;
+function getUserById($user_id, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
     }
-}
-
-/**
- * Update user password
- */
-function updateUserPassword($pdo, $user_id, $new_password) {
-    if (!$pdo) return false;
-    
-    try {
-        $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare("UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?");
-        return $stmt->execute([$hashed_password, $user_id]);
-    } catch (PDOException $e) {
-        error_log("Update password error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Get available languages
- */
-function getAvailableLanguages() {
-    return [
-        'en' => 'English',
-        'af' => 'Afrikaans',
-        'zu' => 'Zulu',
-        'xh' => 'Xhosa'
-    ];
-}
-
-/**
- * Get available timezones
- */
-function getAvailableTimezones() {
-    return [
-        'UTC' => 'UTC',
-        'Africa/Johannesburg' => 'South Africa Standard Time',
-        'Europe/London' => 'London',
-        'America/New_York' => 'New York'
-    ];
-}
-
-// ===================== ORDER TRACKING FUNCTIONS =====================
-
-/**
- * Get order by order number for tracking
- */
-function getOrderByTrackingNumber($pdo, $order_number) {
     if (!$pdo) return null;
     
     try {
-        $stmt = $pdo->prepare("
-            SELECT o.*, 
-                   u.first_name, u.last_name, u.email, u.phone,
-                   COUNT(oi.id) as item_count,
-                   SUM(oi.quantity) as total_quantity
-            FROM orders o 
-            LEFT JOIN users u ON o.user_id = u.id 
-            LEFT JOIN order_items oi ON o.id = oi.order_id 
-            WHERE o.order_number = ?
-            GROUP BY o.id
-        ");
-        $stmt->execute([$order_number]);
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt->execute([$user_id]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
-        error_log("Get order by tracking number error: " . $e->getMessage());
+        error_log("Get user by ID error: " . $e->getMessage());
         return null;
     }
 }
 
 /**
- * Get order tracking history
+ * Update user status
  */
-function getOrderTrackingHistory($pdo, $order_id) {
-    if (!$pdo) return [];
-    
-    try {
-        $stmt = $pdo->prepare("
-            SELECT * FROM order_tracking 
-            WHERE order_id = ? 
-            ORDER BY created_at ASC
-        ");
-        $stmt->execute([$order_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        error_log("Get order tracking history error: " . $e->getMessage());
-        return [];
+function updateUserStatus($user_id, $status, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
     }
-}
-
-/**
- * Get order items for tracking display
- */
-function getOrderItemsForTracking($pdo, $order_id) {
-    if (!$pdo) return [];
-    
-    try {
-        $stmt = $pdo->prepare("
-            SELECT oi.*, p.image, p.name as product_name
-            FROM order_items oi 
-            LEFT JOIN products p ON oi.product_id = p.id 
-            WHERE oi.order_id = ?
-        ");
-        $stmt->execute([$order_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        error_log("Get order items error: " . $e->getMessage());
-        return [];
-    }
-}
-
-/**
- * Validate order access (check if user can view this order)
- */
-function canUserViewOrder($pdo, $order_number, $email = null, $user_id = null) {
     if (!$pdo) return false;
     
     try {
-        $sql = "SELECT o.id FROM orders o WHERE o.order_number = ?";
-        $params = [$order_number];
-        
-        if ($user_id) {
-            // Logged-in user: must own the order
-            $sql .= " AND o.user_id = ?";
-            $params[] = $user_id;
-        } else if ($email) {
-            // Guest: check if email matches billing address
-            $sql .= " AND o.billing_address LIKE ?";
-            $params[] = '%' . $email . '%';
+        $stmt = $pdo->prepare("UPDATE users SET status = ?, updated_at = NOW() WHERE id = ?");
+        return $stmt->execute([$status, $user_id]);
+    } catch (PDOException $e) {
+        error_log("Update user status error: " . $e->getMessage());
+        return false;
+    }
+}
+
+// ===================== PAYMENT METHOD FUNCTIONS =====================
+
+/**
+ * Get user payment methods
+ */
+function getUserPaymentMethods($pdo, $user_id) {
+    if (!$pdo) return [];
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT * FROM user_payment_methods 
+            WHERE user_id = ? AND status = 1 
+            ORDER BY is_default DESC, created_at DESC
+        ");
+        $stmt->execute([$user_id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Get user payment methods error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Add user payment method
+ */
+function addUserPaymentMethod($pdo, $user_id, $card_type, $masked_card_number, $card_holder, $expiry_month, $expiry_year, $is_default) {
+    if (!$pdo) return false;
+    
+    try {
+        // If setting as default, remove default from other cards
+        if ($is_default) {
+            $stmt = $pdo->prepare("UPDATE user_payment_methods SET is_default = 0 WHERE user_id = ?");
+            $stmt->execute([$user_id]);
         }
         
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        return $stmt->fetch() !== false;
+        $stmt = $pdo->prepare("
+            INSERT INTO user_payment_methods 
+            (user_id, card_type, masked_card_number, card_holder, expiry_month, expiry_year, is_default) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ");
+        return $stmt->execute([$user_id, $card_type, $masked_card_number, $card_holder, $expiry_month, $expiry_year, $is_default]);
     } catch (PDOException $e) {
-        error_log("Order access validation error: " . $e->getMessage());
+        error_log("Add user payment method error: " . $e->getMessage());
         return false;
     }
 }
 
 /**
- * Get order status with progress information
+ * Set default payment method
  */
-function getOrderStatusWithProgress($status) {
-    $statuses = [
-        'pending' => [
-            'label' => 'Order Placed',
-            'progress' => 25,
-            'description' => 'Your order has been received and is being processed',
-            'icon' => 'fas fa-shopping-cart'
-        ],
-        'processing' => [
-            'label' => 'Processing',
-            'progress' => 50,
-            'description' => 'Your order is being prepared for shipment',
-            'icon' => 'fas fa-cog'
-        ],
-        'shipped' => [
-            'label' => 'Shipped',
-            'progress' => 75,
-            'description' => 'Your order has been shipped and is on its way',
-            'icon' => 'fas fa-shipping-fast'
-        ],
-        'out_for_delivery' => [
-            'label' => 'Out for Delivery',
-            'progress' => 90,
-            'description' => 'Your order is out for delivery today',
-            'icon' => 'fas fa-truck'
-        ],
-        'delivered' => [
-            'label' => 'Delivered',
-            'progress' => 100,
-            'description' => 'Your order has been delivered successfully',
-            'icon' => 'fas fa-check-circle'
-        ],
-        'cancelled' => [
-            'label' => 'Cancelled',
-            'progress' => 0,
-            'description' => 'Your order has been cancelled',
-            'icon' => 'fas fa-times-circle'
-        ]
-    ];
-    
-    return $statuses[$status] ?? $statuses['pending'];
-}
-
-/**
- * Add tracking event to order
- */
-function addOrderTrackingEvent($pdo, $order_id, $status, $description = null, $location = null, $estimated_delivery = null) {
+function setDefaultPaymentMethod($pdo, $payment_method_id, $user_id) {
     if (!$pdo) return false;
     
     try {
-        $stmt = $pdo->prepare("
-            INSERT INTO order_tracking 
-            (order_id, status, description, location, estimated_delivery) 
-            VALUES (?, ?, ?, ?, ?)
-        ");
-        return $stmt->execute([
-            $order_id, 
-            $status, 
-            $description, 
-            $location, 
-            $estimated_delivery
-        ]);
+        // Start transaction
+        $pdo->beginTransaction();
+        
+        // Remove default from all user's payment methods
+        $stmt = $pdo->prepare("UPDATE user_payment_methods SET is_default = 0 WHERE user_id = ?");
+        $stmt->execute([$user_id]);
+        
+        // Set the specified method as default
+        $stmt = $pdo->prepare("UPDATE user_payment_methods SET is_default = 1 WHERE id = ? AND user_id = ?");
+        $result = $stmt->execute([$payment_method_id, $user_id]);
+        
+        $pdo->commit();
+        return $result;
     } catch (PDOException $e) {
-        error_log("Add order tracking event error: " . $e->getMessage());
+        $pdo->rollBack();
+        error_log("Set default payment method error: " . $e->getMessage());
         return false;
     }
 }
+
+/**
+ * Delete payment method
+ */
+function deletePaymentMethod($pdo, $payment_method_id, $user_id) {
+    if (!$pdo) return false;
+    
+    try {
+        $stmt = $pdo->prepare("DELETE FROM user_payment_methods WHERE id = ? AND user_id = ?");
+        return $stmt->execute([$payment_method_id, $user_id]);
+    } catch (PDOException $e) {
+        error_log("Delete payment method error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Validate card number using Luhn algorithm
+ */
+function validateCardNumber($cardNumber) {
+    $cardNumber = preg_replace('/\D/', '', $cardNumber);
+    
+    // Check if empty or too short
+    if (empty($cardNumber) || strlen($cardNumber) < 13) {
+        return false;
+    }
+    
+    // Luhn algorithm
+    $sum = 0;
+    $reverse = strrev($cardNumber);
+    
+    for ($i = 0; $i < strlen($reverse); $i++) {
+        $current = intval($reverse[$i]);
+        if ($i % 2 == 1) {
+            $current *= 2;
+            if ($current > 9) {
+                $current -= 9;
+            }
+        }
+        $sum += $current;
+    }
+    
+    return ($sum % 10 == 0);
+}
+
+/**
+ * Validate expiry date
+ */
+function validateExpiryDate($month, $year) {
+    if (!is_numeric($month) || !is_numeric($year)) {
+        return false;
+    }
+    
+    $currentYear = date('Y');
+    $currentMonth = date('n');
+    
+    // Check if year is in reasonable range
+    if ($year < $currentYear || $year > $currentYear + 20) {
+        return false;
+    }
+    
+    // Check if month is valid
+    if ($month < 1 || $month > 12) {
+        return false;
+    }
+    
+    // If current year, check if month hasn't passed
+    if ($year == $currentYear && $month < $currentMonth) {
+        return false;
+    }
+    
+    return true;
+}
+
+/**
+ * Mask card number for display
+ */
+function maskCardNumber($cardNumber) {
+    $cardNumber = preg_replace('/\D/', '', $cardNumber);
+    $length = strlen($cardNumber);
+    
+    if ($length < 4) {
+        return '****';
+    }
+    
+    $lastFour = substr($cardNumber, -4);
+    $masked = str_repeat('*', $length - 4) . $lastFour;
+    
+    // Add spaces for better readability
+    return implode(' ', str_split($masked, 4));
+}
+
+/**
+ * Detect card type from number
+ */
+function detectCardType($cardNumber) {
+    $cardNumber = preg_replace('/\D/', '', $cardNumber);
+    
+    // Visa
+    if (preg_match('/^4/', $cardNumber)) {
+        return 'Visa';
+    }
+    // MasterCard
+    if (preg_match('/^5[1-5]/', $cardNumber)) {
+        return 'MasterCard';
+    }
+    // American Express
+    if (preg_match('/^3[47]/', $cardNumber)) {
+        return 'American Express';
+    }
+    // Discover
+    if (preg_match('/^6(?:011|5)/', $cardNumber)) {
+        return 'Discover';
+    }
+    
+    return 'Other';
+}
+
+// ===================== ANALYTICS AND REPORTING FUNCTIONS =====================
+
+/**
+ * Get monthly sales data for charts
+ */
+function getMonthlySalesData($year = null, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
+    if (!$pdo) return [];
+    
+    if ($year === null) {
+        $year = date('Y');
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT 
+                MONTH(created_at) as month,
+                COUNT(*) as order_count,
+                COALESCE(SUM(total_amount), 0) as monthly_revenue
+            FROM orders 
+            WHERE YEAR(created_at) = ? AND status = 'completed'
+            GROUP BY MONTH(created_at)
+            ORDER BY month ASC
+        ");
+        $stmt->execute([$year]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Monthly sales data error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get popular search terms
+ */
+function getPopularSearchTerms($limit = 10, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
+    if (!$pdo) return [];
+    
+    // Note: This would require a search_logs table
+    // For now, returning empty array
+    return [];
+}
+
+/**
+ * Get conversion rate data
+ */
+function getConversionRateData($days = 30, $pdo = null) {
+    if ($pdo === null) {
+        $pdo = getDBConnection();
+    }
+    if (!$pdo) return [];
+    
+    try {
+        // This is a simplified version - you'd need more complex tracking for actual conversion rates
+        $stmt = $pdo->prepare("
+            SELECT 
+                DATE(created_at) as date,
+                COUNT(*) as orders,
+                (SELECT COUNT(*) FROM users WHERE DATE(created_at) = date) as signups
+            FROM orders 
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+        ");
+        $stmt->execute([$days]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Conversion rate data error: " . $e->getMessage());
+        return [];
+    }
+}
+
 ?>
