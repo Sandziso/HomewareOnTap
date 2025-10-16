@@ -26,6 +26,7 @@ $endDate = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d');
 $category = isset($_GET['category']) ? $_GET['category'] : 'all';
 $sortBy = isset($_GET['sort_by']) ? $_GET['sort_by'] : 'revenue_desc';
 $inventoryStatus = isset($_GET['inventory_status']) ? $_GET['inventory_status'] : 'all';
+$export = isset($_GET['export']) ? $_GET['export'] : false;
 
 // Validate dates
 if (!validateDate($startDate) || !validateDate($endDate)) {
@@ -48,16 +49,30 @@ $totalRevenue = 0;
 $totalUnitsSold = 0;
 $totalProducts = 0;
 $avgRating = 0;
+$lowStockCount = 0;
+$outOfStockCount = 0;
 
 foreach ($productStats as $product) {
     $totalRevenue += $product['revenue'];
     $totalUnitsSold += $product['units_sold'];
     $totalProducts++;
     $avgRating += $product['avg_rating'];
+    
+    if ($product['stock_status'] == 'low_stock') {
+        $lowStockCount++;
+    } elseif ($product['stock_status'] == 'out_of_stock') {
+        $outOfStockCount++;
+    }
 }
 
 $avgRating = $totalProducts > 0 ? $avgRating / $totalProducts : 0;
 $avgMargin = calculateAverageMargin($pdo);
+
+// Handle export functionality
+if ($export && $export == 'csv') {
+    exportProductsToCSV($productStats, $startDate, $endDate);
+    exit();
+}
 
 // Function to get product performance data
 function getProductPerformanceData($pdo, $startDate, $endDate, $category, $sortBy, $inventoryStatus) {
@@ -68,6 +83,7 @@ function getProductPerformanceData($pdo, $startDate, $endDate, $category, $sortB
                 p.name,
                 p.sku,
                 p.price,
+                p.cost_price,
                 p.stock_quantity,
                 p.stock_alert,
                 c.name as category_name,
@@ -128,6 +144,9 @@ function getProductPerformanceData($pdo, $startDate, $endDate, $category, $sortB
             case 'name_asc':
                 $query .= " ORDER BY p.name ASC";
                 break;
+            case 'margin_desc':
+                $query .= " ORDER BY ((p.price - COALESCE(p.cost_price, 0)) / p.price * 100) DESC";
+                break;
             default:
                 $query .= " ORDER BY revenue DESC";
                 break;
@@ -186,16 +205,84 @@ function getSalesTrend($pdo, $startDate, $endDate) {
     }
 }
 
-// Function to calculate average margin (placeholder - would need cost data in real implementation)
+// Function to calculate average margin
 function calculateAverageMargin($pdo) {
-    // This is a simplified calculation - in a real system you'd have cost data
-    return 42.8; // Fixed percentage for demo
+    try {
+        $stmt = $pdo->prepare("
+            SELECT AVG((price - COALESCE(cost_price, price * 0.6)) / price * 100) as avg_margin 
+            FROM products 
+            WHERE status = 1 AND price > 0
+        ");
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $result['avg_margin'] ? round($result['avg_margin'], 1) : 42.8;
+    } catch (PDOException $e) {
+        error_log("Error calculating average margin: " . $e->getMessage());
+        return 42.8;
+    }
+}
+
+// Function to calculate individual product margin
+function calculateProductMargin($product) {
+    if (isset($product['cost_price']) && $product['cost_price'] > 0 && $product['price'] > 0) {
+        return (($product['price'] - $product['cost_price']) / $product['price']) * 100;
+    }
+    return 42.8; // Default fallback
 }
 
 // Function to validate date format
 function validateDate($date, $format = 'Y-m-d') {
     $d = DateTime::createFromFormat($format, $date);
     return $d && $d->format($format) === $date;
+}
+
+// Function to export products to CSV
+function exportProductsToCSV($productStats, $startDate, $endDate) {
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="product_performance_' . $startDate . '_to_' . $endDate . '.csv"');
+    
+    $output = fopen('php://output', 'w');
+    
+    // Add BOM for UTF-8
+    fputs($output, $bom = (chr(0xEF) . chr(0xBB) . chr(0xBF)));
+    
+    // CSV headers
+    fputcsv($output, [
+        'Product Name',
+        'SKU',
+        'Category',
+        'Price (R)',
+        'Cost Price (R)',
+        'Units Sold',
+        'Revenue (R)',
+        'Margin (%)',
+        'Rating',
+        'Reviews',
+        'Stock Quantity',
+        'Stock Status'
+    ]);
+    
+    // Data rows
+    foreach ($productStats as $product) {
+        $margin = calculateProductMargin($product);
+        fputcsv($output, [
+            $product['name'],
+            $product['sku'],
+            $product['category_name'] ?? 'Uncategorized',
+            number_format($product['price'], 2),
+            isset($product['cost_price']) ? number_format($product['cost_price'], 2) : 'N/A',
+            $product['units_sold'],
+            number_format($product['revenue'], 2),
+            number_format($margin, 1),
+            number_format($product['avg_rating'], 1),
+            $product['review_count'],
+            $product['stock_quantity'],
+            ucfirst(str_replace('_', ' ', $product['stock_status']))
+        ]);
+    }
+    
+    fclose($output);
+    exit();
 }
 
 // Get categories for filter dropdown
@@ -219,6 +306,7 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
     
     <!-- DataTables CSS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css">
     
     <style>
         :root {
@@ -264,6 +352,11 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
         .bg-warning-light {
             background-color: rgba(255, 193, 7, 0.15);
             color: #ffc107;
+        }
+        
+        .bg-danger-light {
+            background-color: rgba(220, 53, 69, 0.15);
+            color: #dc3545;
         }
         
         .btn-primary {
@@ -337,6 +430,82 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
             background: linear-gradient(135deg, #F9F5F0 0%, #F2E8D5 100%);
             border-left: 4px solid var(--primary);
         }
+        
+        .export-btn {
+            background-color: var(--dark);
+            border-color: var(--dark);
+        }
+        
+        .export-btn:hover {
+            background-color: #2a231c;
+            border-color: #2a231c;
+        }
+        
+        .table-responsive {
+            overflow-x: auto;
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            .card-body {
+                padding: 1rem;
+            }
+            
+            .summary-card .card-body {
+                padding: 1rem;
+            }
+            
+            .summary-card h2 {
+                font-size: 1.5rem;
+            }
+            
+            .btn-group-mobile {
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+            
+            .btn-group-mobile .btn {
+                width: 100%;
+            }
+        }
+        
+        /* Print styles */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            
+            .card-dashboard {
+                box-shadow: none;
+                border: 1px solid #ddd;
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+        }
+        
+        .stock-low {
+            color: #ffc107;
+            font-weight: 500;
+        }
+        
+        .stock-out {
+            color: #dc3545;
+            font-weight: 500;
+        }
+        
+        .stock-good {
+            color: #28a745;
+            font-weight: 500;
+        }
+        
+        .dataTables_wrapper .dataTables_filter input {
+            border-radius: 4px;
+            border: 1px solid #ced4da;
+            padding: 0.375rem 0.75rem;
+        }
     </style>
 </head>
 <body>
@@ -370,36 +539,35 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
         </nav>
 
         <!-- Product Reports Content -->
-        <div class="content-section" id="productReportsSection">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h3 class="mb-0">Product Performance Reports</h3>
-                <div>
-                    <button class="btn btn-outline-primary me-2" onclick="exportToCSV()">
-                        <i class="fas fa-file-export me-2"></i>Export CSV
-                    </button>
-                    <button class="btn btn-primary" onclick="window.print()">
-                        <i class="fas fa-print me-2"></i>Print Report
-                    </button>
-                </div>
-            </div>
+        <div class="container-fluid p-0">
 
             <!-- Filter Section -->
             <div class="card card-dashboard mb-4 filter-section">
                 <div class="card-body">
-                    <h5 class="mb-3">Filter Report</h5>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Filter Report</h5>
+                        <div class="btn-group no-print">
+                            <a href="?export=csv&<?php echo http_build_query($_GET); ?>" class="btn btn-sm export-btn">
+                                <i class="fas fa-download me-1"></i> Export CSV
+                            </a>
+                            <button onclick="window.print()" class="btn btn-sm btn-outline-secondary">
+                                <i class="fas fa-print me-1"></i> Print
+                            </button>
+                        </div>
+                    </div>
                     <form method="GET" action="">
                         <div class="row">
-                            <div class="col-md-3 mb-2">
+                            <div class="col-md-3 col-sm-6 mb-2">
                                 <label for="start_date" class="form-label">Start Date</label>
                                 <input type="date" class="form-control" id="start_date" name="start_date" 
                                        value="<?php echo $startDate; ?>" max="<?php echo date('Y-m-d'); ?>">
                             </div>
-                            <div class="col-md-3 mb-2">
+                            <div class="col-md-3 col-sm-6 mb-2">
                                 <label for="end_date" class="form-label">End Date</label>
                                 <input type="date" class="form-control" id="end_date" name="end_date" 
                                        value="<?php echo $endDate; ?>" max="<?php echo date('Y-m-d'); ?>">
                             </div>
-                            <div class="col-md-2 mb-2">
+                            <div class="col-md-2 col-sm-6 mb-2">
                                 <label for="category" class="form-label">Category</label>
                                 <select class="form-select" id="category" name="category">
                                     <option value="all">All Categories</option>
@@ -410,17 +578,18 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="col-md-2 mb-2">
+                            <div class="col-md-2 col-sm-6 mb-2">
                                 <label for="sort_by" class="form-label">Sort By</label>
                                 <select class="form-select" id="sort_by" name="sort_by">
                                     <option value="revenue_desc" <?php echo ($sortBy == 'revenue_desc') ? 'selected' : ''; ?>>Revenue (High to Low)</option>
                                     <option value="units_sold_desc" <?php echo ($sortBy == 'units_sold_desc') ? 'selected' : ''; ?>>Units Sold (High to Low)</option>
+                                    <option value="margin_desc" <?php echo ($sortBy == 'margin_desc') ? 'selected' : ''; ?>>Margin (High to Low)</option>
                                     <option value="price_desc" <?php echo ($sortBy == 'price_desc') ? 'selected' : ''; ?>>Price (High to Low)</option>
                                     <option value="rating_desc" <?php echo ($sortBy == 'rating_desc') ? 'selected' : ''; ?>>Customer Rating</option>
                                     <option value="name_asc" <?php echo ($sortBy == 'name_asc') ? 'selected' : ''; ?>>Alphabetical</option>
                                 </select>
                             </div>
-                            <div class="col-md-2 mb-2">
+                            <div class="col-md-2 col-sm-6 mb-2">
                                 <label for="inventory_status" class="form-label">Inventory Status</label>
                                 <select class="form-select" id="inventory_status" name="inventory_status">
                                     <option value="all" <?php echo ($inventoryStatus == 'all') ? 'selected' : ''; ?>>All Products</option>
@@ -431,9 +600,13 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                             </div>
                         </div>
                         <div class="row mt-3">
-                            <div class="col text-end">
-                                <button type="submit" class="btn btn-primary">Apply Filters</button>
-                                <a href="products.php" class="btn btn-outline-secondary">Reset</a>
+                            <div class="col text-end btn-group-mobile">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-filter me-1"></i> Apply Filters
+                                </button>
+                                <a href="products.php" class="btn btn-outline-secondary">
+                                    <i class="fas fa-refresh me-1"></i> Reset
+                                </a>
                             </div>
                         </div>
                     </form>
@@ -442,11 +615,11 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
 
             <!-- Summary Stats -->
             <div class="row mb-4">
-                <div class="col-md-3 mb-3">
+                <div class="col-xl-3 col-md-6 mb-3">
                     <div class="card card-dashboard h-100 summary-card">
                         <div class="card-body">
                             <div class="card-icon bg-primary-light">
-                                <i class="fas fa-rand-sign"></i>
+                                <i class="fas fa-money-bill-wave"></i>
                             </div>
                             <h5 class="card-title">Total Revenue</h5>
                             <h2 class="fw-bold">R<?php echo number_format($totalRevenue, 2); ?></h2>
@@ -454,7 +627,7 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
+                <div class="col-xl-3 col-md-6 mb-3">
                     <div class="card card-dashboard h-100 summary-card">
                         <div class="card-body">
                             <div class="card-icon bg-success-light">
@@ -466,7 +639,7 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
+                <div class="col-xl-3 col-md-6 mb-3">
                     <div class="card card-dashboard h-100 summary-card">
                         <div class="card-body">
                             <div class="card-icon bg-info-light">
@@ -478,7 +651,7 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
+                <div class="col-xl-3 col-md-6 mb-3">
                     <div class="card card-dashboard h-100 summary-card">
                         <div class="card-body">
                             <div class="card-icon bg-warning-light">
@@ -492,12 +665,49 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                 </div>
             </div>
 
+            <!-- Inventory Alerts -->
+            <?php if ($lowStockCount > 0 || $outOfStockCount > 0): ?>
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card card-dashboard border-warning">
+                        <div class="card-body">
+                            <h5 class="card-title text-warning">
+                                <i class="fas fa-exclamation-triangle me-2"></i> Inventory Alerts
+                            </h5>
+                            <div class="row">
+                                <?php if ($lowStockCount > 0): ?>
+                                <div class="col-md-6">
+                                    <div class="d-flex align-items-center">
+                                        <span class="badge bg-warning me-2"><?php echo $lowStockCount; ?></span>
+                                        <span>Products with low stock</span>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+                                <?php if ($outOfStockCount > 0): ?>
+                                <div class="col-md-6">
+                                    <div class="d-flex align-items-center">
+                                        <span class="badge bg-danger me-2"><?php echo $outOfStockCount; ?></span>
+                                        <span>Products out of stock</span>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Charts -->
             <div class="row mb-4">
-                <div class="col-md-6 mb-4">
+                <div class="col-lg-6 mb-4">
                     <div class="card card-dashboard h-100">
-                        <div class="card-header bg-white">
+                        <div class="card-header bg-white d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Revenue by Category</h5>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="toggleChartType">
+                                <label class="form-check-label small" for="toggleChartType">Bar Chart</label>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="chart-container">
@@ -506,7 +716,7 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                         </div>
                     </div>
                 </div>
-                <div class="col-md-6 mb-4">
+                <div class="col-lg-6 mb-4">
                     <div class="card card-dashboard h-100">
                         <div class="card-header bg-white">
                             <h5 class="mb-0">Sales Trend</h5>
@@ -522,9 +732,14 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
 
             <!-- Product Performance Table -->
             <div class="card card-dashboard">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <h5 class="mb-0">Product Performance</h5>
-                    <input type="text" class="form-control form-control-sm w-25" id="searchProducts" placeholder="Search products...">
+                    <div class="d-flex gap-2 flex-wrap">
+                        <input type="text" class="form-control form-control-sm" id="searchProducts" placeholder="Search products..." style="width: 200px;">
+                        <span class="text-muted small align-self-center">
+                            Showing <?php echo count($productStats); ?> products
+                        </span>
+                    </div>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
@@ -540,6 +755,7 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                                     <th>Rating</th>
                                     <th>Inventory</th>
                                     <th>Status</th>
+                                    <th class="no-print">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -547,19 +763,23 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                                 $stockPercentage = $product['stock_quantity'] > 0 ? min(100, ($product['stock_quantity'] / ($product['stock_quantity'] + 50)) * 100) : 0;
                                 $statusClass = '';
                                 $statusText = '';
+                                $productMargin = calculateProductMargin($product);
                                 
                                 switch ($product['stock_status']) {
                                     case 'out_of_stock':
                                         $statusClass = 'bg-danger';
                                         $statusText = 'Out of Stock';
+                                        $stockClass = 'stock-out';
                                         break;
                                     case 'low_stock':
                                         $statusClass = 'bg-warning';
                                         $statusText = 'Low Stock';
+                                        $stockClass = 'stock-low';
                                         break;
                                     default:
                                         $statusClass = 'bg-success';
                                         $statusText = 'In Stock';
+                                        $stockClass = 'stock-good';
                                         break;
                                 }
                                 ?>
@@ -579,7 +799,11 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                                     <td>R<?php echo number_format($product['price'], 2); ?></td>
                                     <td><?php echo $product['units_sold']; ?></td>
                                     <td>R<?php echo number_format($product['revenue'], 2); ?></td>
-                                    <td><?php echo number_format($avgMargin, 1); ?>%</td>
+                                    <td>
+                                        <span class="<?php echo $productMargin >= 40 ? 'stock-good' : ($productMargin >= 20 ? 'stock-low' : 'stock-out'); ?>">
+                                            <?php echo number_format($productMargin, 1); ?>%
+                                        </span>
+                                    </td>
                                     <td>
                                         <div class="d-flex align-items-center">
                                             <span class="text-warning me-1">
@@ -589,7 +813,7 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                                         </div>
                                     </td>
                                     <td>
-                                        <div><?php echo $product['stock_quantity']; ?> in stock</div>
+                                        <div class="<?php echo $stockClass; ?>"><?php echo $product['stock_quantity']; ?> in stock</div>
                                         <div class="progress">
                                             <div class="progress-bar <?php 
                                                 echo $stockPercentage > 50 ? 'bg-success' : ($stockPercentage > 20 ? 'bg-warning' : 'bg-danger'); 
@@ -597,6 +821,16 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                                         </div>
                                     </td>
                                     <td><span class="badge <?php echo $statusClass; ?>"><?php echo $statusText; ?></span></td>
+                                    <td class="no-print">
+                                        <div class="btn-group btn-group-sm">
+                                            <a href="../products/edit.php?id=<?php echo $product['id']; ?>" class="btn btn-outline-primary" title="Edit Product">
+                                                <i class="fas fa-edit"></i>
+                                            </a>
+                                            <a href="../products/view.php?id=<?php echo $product['id']; ?>" class="btn btn-outline-info" title="View Details">
+                                                <i class="fas fa-eye"></i>
+                                            </a>
+                                        </div>
+                                    </td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -607,6 +841,7 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                     <div class="text-center py-4">
                         <i class="fas fa-box-open fa-3x text-muted mb-3"></i>
                         <p class="text-muted">No products found matching your criteria.</p>
+                        <a href="products.php" class="btn btn-primary">Reset Filters</a>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -621,18 +856,31 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
     <!-- DataTables JS -->
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/responsive.bootstrap5.min.js"></script>
 
     <script>
         $(document).ready(function() {
-            // Initialize DataTable
+            // Initialize DataTable with responsive features
             $('#productsTable').DataTable({
                 pageLength: 10,
                 responsive: true,
                 order: [[3, 'desc']],
                 language: {
                     search: "_INPUT_",
-                    searchPlaceholder: "Search products..."
-                }
+                    searchPlaceholder: "Search products...",
+                    lengthMenu: "Show _MENU_ entries",
+                    info: "Showing _START_ to _END_ of _TOTAL_ products",
+                    infoEmpty: "Showing 0 to 0 of 0 products",
+                    infoFiltered: "(filtered from _MAX_ total products)"
+                },
+                dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rt<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>',
+                columnDefs: [
+                    { responsivePriority: 1, targets: 0 }, // Product name
+                    { responsivePriority: 2, targets: 3 }, // Units sold
+                    { responsivePriority: 3, targets: 4 }, // Revenue
+                    { responsivePriority: 4, targets: -1 } // Actions
+                ]
             });
             
             // Initialize charts
@@ -641,7 +889,7 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
             function initCharts() {
                 // Category Chart
                 const categoryCtx = document.getElementById('categoryChart').getContext('2d');
-                const categoryChart = new Chart(categoryCtx, {
+                let categoryChart = new Chart(categoryCtx, {
                     type: 'doughnut',
                     data: {
                         labels: [
@@ -665,7 +913,9 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                                 '#3A3229',
                                 '#8B6145',
                                 '#D9C7B2',
-                                '#C2B2A2'
+                                '#C2B2A2',
+                                '#8C7B69',
+                                '#5D4C3D'
                             ]
                         }]
                     },
@@ -674,10 +924,84 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                         maintainAspectRatio: false,
                         plugins: {
                             legend: {
-                                position: 'right'
+                                position: 'right',
+                                labels: {
+                                    boxWidth: 12,
+                                    padding: 15
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.raw || 0;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = Math.round((value / total) * 100);
+                                        return `${label}: R${value.toFixed(2)} (${percentage}%)`;
+                                    }
+                                }
                             }
                         }
                     }
+                });
+                
+                // Toggle chart type
+                $('#toggleChartType').change(function() {
+                    const isBarChart = $(this).is(':checked');
+                    categoryChart.destroy();
+                    
+                    categoryChart = new Chart(categoryCtx, {
+                        type: isBarChart ? 'bar' : 'doughnut',
+                        data: {
+                            labels: [
+                                <?php 
+                                foreach ($revenueByCategory as $cat) {
+                                    echo "'" . htmlspecialchars($cat['category_name']) . "',";
+                                }
+                                ?>
+                            ],
+                            datasets: [{
+                                label: 'Revenue (R)',
+                                data: [
+                                    <?php 
+                                    foreach ($revenueByCategory as $cat) {
+                                        echo $cat['revenue'] . ",";
+                                    }
+                                    ?>
+                                ],
+                                backgroundColor: isBarChart ? '#A67B5B' : [
+                                    '#A67B5B',
+                                    '#F2E8D5',
+                                    '#3A3229',
+                                    '#8B6145',
+                                    '#D9C7B2',
+                                    '#C2B2A2',
+                                    '#8C7B69',
+                                    '#5D4C3D'
+                                ]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: !isBarChart,
+                                    position: 'right'
+                                }
+                            },
+                            scales: isBarChart ? {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        callback: function(value) {
+                                            return 'R' + value.toLocaleString();
+                                        }
+                                    }
+                                }
+                            } : {}
+                        }
+                    });
                 });
                 
                 // Sales Trend Chart
@@ -706,17 +1030,34 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                             borderColor: '#A67B5B',
                             tension: 0.3,
                             pointRadius: 3,
-                            pointBackgroundColor: '#A67B5B'
+                            pointBackgroundColor: '#A67B5B',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 1,
+                            pointHoverRadius: 5
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return 'Revenue: R' + context.raw.toLocaleString();
+                                    }
+                                }
+                            }
+                        },
                         scales: {
                             y: {
                                 beginAtZero: true,
                                 grid: {
                                     drawBorder: false
+                                },
+                                ticks: {
+                                    callback: function(value) {
+                                        return 'R' + value.toLocaleString();
+                                    }
                                 },
                                 title: {
                                     display: true,
@@ -755,12 +1096,39 @@ $categories = $pdo->query("SELECT id, name FROM categories WHERE status = 1 ORDE
                     $('body').removeClass('overflow-hidden');
                 }
             });
+
+            // Date range validation
+            $('#start_date, #end_date').change(function() {
+                const startDate = new Date($('#start_date').val());
+                const endDate = new Date($('#end_date').val());
+                
+                if (startDate > endDate) {
+                    alert('End date cannot be before start date');
+                    $('#end_date').val($('#start_date').val());
+                }
+                
+                // Limit date range to 1 year for performance
+                const oneYearLater = new Date(startDate);
+                oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
+                
+                if (endDate > oneYearLater) {
+                    alert('Date range cannot exceed 1 year for performance reasons');
+                    $('#end_date').val(oneYearLater.toISOString().split('T')[0]);
+                }
+            });
+
+            // Quick date range buttons
+            $('.quick-date').click(function(e) {
+                e.preventDefault();
+                const days = $(this).data('days');
+                const endDate = new Date();
+                const startDate = new Date();
+                startDate.setDate(startDate.getDate() - days);
+                
+                $('#start_date').val(startDate.toISOString().split('T')[0]);
+                $('#end_date').val(endDate.toISOString().split('T')[0]);
+            });
         });
-        
-        // Export to CSV function
-        function exportToCSV() {
-            alert('Export functionality would generate a CSV file with the current product performance data.');
-        }
     </script>
 </body>
 </html>

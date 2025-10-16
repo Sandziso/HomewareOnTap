@@ -20,6 +20,12 @@ if (!$pdo) {
     die("Database connection failed");
 }
 
+// Handle export generation
+if (isset($_GET['start_date']) && isset($_GET['end_date']) && isset($_GET['format']) && isset($_GET['type'])) {
+    generateExport($pdo);
+    exit();
+}
+
 // Handle export request
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['export_data'])) {
     $startDate = $_POST['start_date'];
@@ -30,6 +36,390 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['export_data'])) {
     // Redirect to export script with parameters
     header("Location: export.php?start_date=$startDate&end_date=$endDate&format=$exportFormat&type=$reportType");
     exit();
+}
+
+/**
+ * Generate export file based on parameters
+ */
+function generateExport($pdo) {
+    $startDate = $_GET['start_date'] . ' 00:00:00';
+    $endDate = $_GET['end_date'] . ' 23:59:59';
+    $format = $_GET['format'];
+    $type = $_GET['type'];
+    
+    // Validate dates
+    if (!validateDate($startDate) || !validateDate($endDate)) {
+        die("Invalid date format");
+    }
+    
+    // Get data based on report type
+    $data = getExportData($pdo, $type, $startDate, $endDate);
+    
+    if (empty($data)) {
+        die("No data found for the selected criteria");
+    }
+    
+    // Generate filename
+    $filename = generateFilename($type, $format, $startDate, $endDate);
+    
+    // Export based on format
+    switch ($format) {
+        case 'csv':
+            exportCSV($data, $filename);
+            break;
+        case 'xls':
+            exportExcel($data, $filename);
+            break;
+        case 'json':
+            exportJSON($data, $filename);
+            break;
+        default:
+            die("Unsupported export format");
+    }
+}
+
+/**
+ * Get export data based on report type
+ */
+function getExportData($pdo, $type, $startDate, $endDate) {
+    switch ($type) {
+        case 'sales':
+            return getSalesData($pdo, $startDate, $endDate);
+        case 'products':
+            return getProductsData($pdo, $startDate, $endDate);
+        case 'customers':
+            return getCustomersData($pdo, $startDate, $endDate);
+        case 'inventory':
+            return getInventoryData($pdo);
+        default:
+            return [];
+    }
+}
+
+/**
+ * Get sales data for export
+ */
+function getSalesData($pdo, $startDate, $endDate) {
+    try {
+        $sql = "
+            SELECT 
+                o.id,
+                o.order_number,
+                o.created_at,
+                o.status,
+                o.total_amount,
+                o.payment_method,
+                o.payment_status,
+                o.shipping_cost,
+                o.tax_amount,
+                o.discount_amount,
+                o.coupon_code,
+                CONCAT(u.first_name, ' ', u.last_name) as customer_name,
+                u.email as customer_email,
+                COUNT(oi.id) as item_count,
+                SUM(oi.quantity) as total_quantity
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            WHERE o.created_at BETWEEN ? AND ?
+            GROUP BY o.id
+            ORDER BY o.created_at DESC
+        ";
+        
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$startDate, $endDate]);
+        $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Format the data for export
+        $exportData = [];
+        foreach ($orders as $order) {
+            $exportData[] = [
+                'Order ID' => $order['id'],
+                'Order Number' => $order['order_number'],
+                'Order Date' => $order['created_at'],
+                'Customer Name' => $order['customer_name'],
+                'Customer Email' => $order['customer_email'],
+                'Status' => ucfirst($order['status']),
+                'Total Amount' => format_price($order['total_amount']),
+                'Payment Method' => $order['payment_method'],
+                'Payment Status' => ucfirst($order['payment_status']),
+                'Shipping Cost' => format_price($order['shipping_cost']),
+                'Tax Amount' => format_price($order['tax_amount']),
+                'Discount Amount' => format_price($order['discount_amount']),
+                'Coupon Code' => $order['coupon_code'],
+                'Item Count' => $order['item_count'],
+                'Total Quantity' => $order['total_quantity']
+            ];
+        }
+        
+        return $exportData;
+        
+    } catch (PDOException $e) {
+        error_log("Sales export error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get products data for export
+ */
+function getProductsData($pdo, $startDate, $endDate) {
+    try {
+        $sql = "
+            SELECT 
+                p.id,
+                p.name,
+                p.sku,
+                p.price,
+                p.stock_quantity,
+                p.stock_alert,
+                c.name as category_name,
+                p.is_featured,
+                p.is_bestseller,
+                p.is_new,
+                p.status,
+                p.created_at,
+                COUNT(oi.id) as times_ordered,
+                COALESCE(SUM(oi.quantity), 0) as total_sold,
+                COALESCE(SUM(oi.subtotal), 0) as total_revenue
+            FROM products p
+            LEFT JOIN categories c ON p.category_id = c.id
+            LEFT JOIN order_items oi ON p.id = oi.product_id
+            LEFT JOIN orders o ON oi.order_id = o.id AND o.created_at BETWEEN ? AND ?
+            GROUP BY p.id
+            ORDER BY total_revenue DESC, total_sold DESC
+        ";
+        
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$startDate, $endDate]);
+        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Format the data for export
+        $exportData = [];
+        foreach ($products as $product) {
+            $exportData[] = [
+                'Product ID' => $product['id'],
+                'Product Name' => $product['name'],
+                'SKU' => $product['sku'],
+                'Price' => format_price($product['price']),
+                'Stock Quantity' => $product['stock_quantity'],
+                'Stock Alert Level' => $product['stock_alert'],
+                'Category' => $product['category_name'],
+                'Featured' => $product['is_featured'] ? 'Yes' : 'No',
+                'Bestseller' => $product['is_bestseller'] ? 'Yes' : 'No',
+                'New Product' => $product['is_new'] ? 'Yes' : 'No',
+                'Status' => $product['status'] ? 'Active' : 'Inactive',
+                'Times Ordered' => $product['times_ordered'],
+                'Total Sold' => $product['total_sold'],
+                'Total Revenue' => format_price($product['total_revenue']),
+                'Created Date' => $product['created_at']
+            ];
+        }
+        
+        return $exportData;
+        
+    } catch (PDOException $e) {
+        error_log("Products export error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get customers data for export
+ */
+function getCustomersData($pdo, $startDate, $endDate) {
+    try {
+        $sql = "
+            SELECT 
+                u.id,
+                u.first_name,
+                u.last_name,
+                u.email,
+                u.phone,
+                u.created_at,
+                u.last_login,
+                COUNT(o.id) as total_orders,
+                COALESCE(SUM(o.total_amount), 0) as total_spent,
+                MAX(o.created_at) as last_order_date
+            FROM users u
+            LEFT JOIN orders o ON u.id = o.user_id AND o.created_at BETWEEN ? AND ?
+            WHERE u.role = 'customer' AND u.status = 1
+            GROUP BY u.id
+            ORDER BY total_spent DESC, total_orders DESC
+        ";
+        
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$startDate, $endDate]);
+        $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Format the data for export
+        $exportData = [];
+        foreach ($customers as $customer) {
+            $exportData[] = [
+                'Customer ID' => $customer['id'],
+                'First Name' => $customer['first_name'],
+                'Last Name' => $customer['last_name'],
+                'Email' => $customer['email'],
+                'Phone' => $customer['phone'],
+                'Registration Date' => $customer['created_at'],
+                'Last Login' => $customer['last_login'],
+                'Total Orders' => $customer['total_orders'],
+                'Total Spent' => format_price($customer['total_spent']),
+                'Last Order Date' => $customer['last_order_date']
+            ];
+        }
+        
+        return $exportData;
+        
+    } catch (PDOException $e) {
+        error_log("Customers export error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get inventory data for export
+ */
+function getInventoryData($pdo) {
+    try {
+        $sql = "
+            SELECT 
+                p.id,
+                p.name,
+                p.sku,
+                p.price,
+                p.stock_quantity,
+                p.stock_alert,
+                c.name as category_name,
+                p.created_at,
+                CASE 
+                    WHEN p.stock_quantity = 0 THEN 'Out of Stock'
+                    WHEN p.stock_quantity <= p.stock_alert THEN 'Low Stock'
+                    ELSE 'In Stock'
+                END as stock_status
+            FROM products p
+            LEFT JOIN categories c ON p.category_id = c.id
+            WHERE p.status = 1
+            ORDER BY p.stock_quantity ASC, p.name ASC
+        ";
+        
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute();
+        $inventory = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Format the data for export
+        $exportData = [];
+        foreach ($inventory as $item) {
+            $exportData[] = [
+                'Product ID' => $item['id'],
+                'Product Name' => $item['name'],
+                'SKU' => $item['sku'],
+                'Price' => format_price($item['price']),
+                'Stock Quantity' => $item['stock_quantity'],
+                'Stock Alert Level' => $item['stock_alert'],
+                'Category' => $item['category_name'],
+                'Stock Status' => $item['stock_status'],
+                'Created Date' => $item['created_at']
+            ];
+        }
+        
+        return $exportData;
+        
+    } catch (PDOException $e) {
+        error_log("Inventory export error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Export data as CSV
+ */
+function exportCSV($data, $filename) {
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    $output = fopen('php://output', 'w');
+    
+    // Add BOM for UTF-8 to help Excel
+    fputs($output, $bom = (chr(0xEF) . chr(0xBB) . chr(0xBF)));
+    
+    // Write headers
+    if (!empty($data)) {
+        fputcsv($output, array_keys($data[0]));
+    }
+    
+    // Write data
+    foreach ($data as $row) {
+        fputcsv($output, $row);
+    }
+    
+    fclose($output);
+}
+
+/**
+ * Export data as Excel (CSV with Excel headers)
+ */
+function exportExcel($data, $filename) {
+    header('Content-Type: application/vnd.ms-excel');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    $output = fopen('php://output', 'w');
+    
+    // Add BOM for UTF-8
+    fputs($output, $bom = (chr(0xEF) . chr(0xBB) . chr(0xBF)));
+    
+    // Write headers
+    if (!empty($data)) {
+        fputcsv($output, array_keys($data[0]));
+    }
+    
+    // Write data
+    foreach ($data as $row) {
+        fputcsv($output, $row);
+    }
+    
+    fclose($output);
+}
+
+/**
+ * Export data as JSON
+ */
+function exportJSON($data, $filename) {
+    header('Content-Type: application/json');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    echo json_encode($data, JSON_PRETTY_PRINT);
+}
+
+/**
+ * Generate filename based on report type and dates
+ */
+function generateFilename($type, $format, $startDate, $endDate) {
+    $typeNames = [
+        'sales' => 'Sales_Report',
+        'products' => 'Products_Report',
+        'customers' => 'Customers_Report',
+        'inventory' => 'Inventory_Report'
+    ];
+    
+    $formatExtensions = [
+        'csv' => 'csv',
+        'xls' => 'xls',
+        'json' => 'json'
+    ];
+    
+    $start = date('Y-m-d', strtotime($startDate));
+    $end = date('Y-m-d', strtotime($endDate));
+    
+    return $typeNames[$type] . '_' . $start . '_to_' . $end . '.' . $formatExtensions[$format];
+}
+
+/**
+ * Validate date format
+ */
+function validateDate($date, $format = 'Y-m-d H:i:s') {
+    $d = DateTime::createFromFormat($format, $date);
+    return $d && $d->format($format) === $date;
 }
 ?>
 <!DOCTYPE html>
@@ -140,6 +530,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['export_data'])) {
             color: white;
             border-color: var(--primary);
         }
+        
+        .export-preview {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
     </style>
 </head>
 <body>
@@ -194,7 +595,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['export_data'])) {
                                         <div class="col-md-6">
                                             <label for="end_date" class="form-label">End Date</label>
                                             <input type="date" class="form-control" id="end_date" name="end_date" 
-                                                   value="<?php echo date('Y-m-t'); ?>" max="<?php echo date('Y-m-d'); ?>">
+                                                   value="<?php echo date('Y-m-d'); ?>" max="<?php echo date('Y-m-d'); ?>">
                                         </div>
                                     </div>
                                 </div>
