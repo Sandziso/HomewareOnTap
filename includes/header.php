@@ -345,7 +345,7 @@ $isAdminPage = (strpos($_SERVER['PHP_SELF'], '/admin/') !== false);
                         <a class="nav-link <?php echo (basename($_SERVER['PHP_SELF']) == '/pages/static/about.php') ? 'active' : ''; ?>" href="<?php echo SITE_URL; ?>/pages/static/about.php">About Us</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo (basename($_SERVER['PHP_SELF']) == '/pages/static/contact.php') ? 'active' : ''; ?>" href="<?php echo SITE_URL; ?>/pages/satic/contact.php">Contact</a>
+                        <a class="nav-link <?php echo (basename($_SERVER['PHP_SELF']) == '/pages/static/contact.php') ? 'active' : ''; ?>" href="<?php echo SITE_URL; ?>/pages/static/contact.php">Contact</a>
                     </li>
                 </ul>
                 

@@ -1,9 +1,20 @@
 <?php
 // pages/static/track-order.php
-require_once '../../includes/functions.php';
-require_once '../../includes/session.php';
 
-$page_title = "Track Your Order - HomewareOnTap";
+// Start session at the VERY TOP of the file
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Define the root path and site URL for proper includes
+$rootPath = $_SERVER['DOCUMENT_ROOT'] . '/homewareontap';
+require_once $rootPath . '/includes/config.php';
+require_once $rootPath . '/includes/functions.php';
+require_once $rootPath . '/includes/session.php';
+
+// Set page title for header
+$pageTitle = "Track Your Order - HomewareOnTap";
+
 $tracking_result = null;
 $order = null;
 $tracking_history = [];
@@ -186,7 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?></title>
+    <title><?php echo $pageTitle; ?></title>
     
     <!-- Reuse the same styles as about.php -->
     <!-- Google Web Fonts -->
@@ -230,138 +241,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-family: 'League Spartan', sans-serif;
             font-weight: 600;
             margin-bottom: 1rem;
-        }
-        
-        /* Header Styles - Same as about.php */
-        .top-bar {
-            background-color: var(--dark);
-            color: white;
-            padding: 8px 0;
-            font-size: 14px;
-        }
-        
-        .top-bar a {
-            color: white;
-            text-decoration: none;
-            margin-right: 15px;
-        }
-        
-        .top-bar a:hover {
-            color: var(--primary);
-        }
-        
-        .navbar {
-            background-color: white;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            padding: 15px 0;
-            transition: all 0.3s ease;
-        }
-        
-        .navbar.scrolled {
-            padding: 10px 0;
-        }
-        
-        .navbar-brand {
-            font-family: 'League Spartan', sans-serif;
-            font-weight: 700;
-            font-size: 28px;
-        }
-        
-        .navbar-brand span:first-child {
-            color: var(--primary);
-        }
-        
-        .navbar-brand span:last-child {
-            color: var(--dark);
-        }
-        
-        .nav-link {
-            font-weight: 500;
-            color: var(--dark);
-            margin: 0 10px;
-            transition: color 0.3s;
-            position: relative;
-        }
-        
-        .nav-link:after {
-            content: '';
-            position: absolute;
-            bottom: -5px;
-            left: 0;
-            width: 0;
-            height: 2px;
-            background-color: var(--primary);
-            transition: width 0.3s;
-        }
-        
-        .nav-link:hover, .nav-link.active {
-            color: var(--primary);
-        }
-        
-        .nav-link:hover:after, .nav-link.active:after {
-            width: 100%;
-        }
-        
-        .navbar-toggler {
-            border: none;
-            font-size: 24px;
-        }
-        
-        .search-form {
-            position: relative;
-            margin-right: 15px;
-        }
-        
-        .search-form input {
-            padding: 10px 15px;
-            padding-right: 45px;
-            border-radius: 30px;
-            border: 1px solid #e9ecef;
-            width: 250px;
-            transition: all 0.3s;
-        }
-        
-        .search-form input:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(166, 123, 91, 0.1);
-        }
-        
-        .search-btn {
-            position: absolute;
-            right: 5px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            color: var(--dark);
-        }
-        
-        .cart-icon, .user-icon {
-            position: relative;
-            font-size: 20px;
-            color: var(--dark);
-            margin-left: 15px;
-            transition: color 0.3s;
-        }
-        
-        .cart-icon:hover, .user-icon:hover {
-            color: var(--primary);
-        }
-        
-        .cart-badge {
-            position: absolute;
-            top: -5px;
-            right: -5px;
-            background-color: var(--primary);
-            color: white;
-            font-size: 10px;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
         }
         
         /* Page Header */
@@ -580,100 +459,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             cursor: pointer;
         }
         
-        /* Footer */
-        .footer {
-            background-color: var(--dark);
-            color: white;
-            padding: 60px 0 30px;
-        }
-        
-        .footer-title {
-            position: relative;
-            margin-bottom: 25px;
-            font-size: 20px;
-        }
-        
-        .footer-title:after {
-            content: '';
-            position: absolute;
-            bottom: -10px;
-            left: 0;
-            width: 40px;
-            height: 2px;
-            background-color: var(--primary);
-        }
-        
-        .footer-links {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        
-        .footer-links li {
-            margin-bottom: 12px;
-        }
-        
-        .footer-links a {
-            color: rgba(255, 255, 255, 0.7);
-            text-decoration: none;
-            transition: color 0.3s;
-        }
-        
-        .footer-links a:hover {
-            color: var(--primary);
-        }
-        
-        .contact-info {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        
-        .contact-info li {
-            margin-bottom: 15px;
-            display: flex;
-            align-items: flex-start;
-        }
-        
-        .contact-info i {
-            margin-right: 15px;
-            color: var(--primary);
-            font-size: 20px;
-            margin-top: 3px;
-        }
-        
-        .social-icons {
-            display: flex;
-            margin-top: 20px;
-        }
-        
-        .social-icons a {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background-color: rgba(255, 255, 255, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            margin-right: 10px;
-            transition: all 0.3s;
-            text-decoration: none;
-        }
-        
-        .social-icons a:hover {
-            background-color: var(--primary);
-            transform: translateY(-3px);
-        }
-        
-        .copyright {
-            text-align: center;
-            padding-top: 30px;
-            margin-top: 30px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            color: rgba(255, 255, 255, 0.7);
-        }
-        
         /* Animations */
         @keyframes fadeInDown {
             from { opacity: 0; transform: translateY(-30px); }
@@ -687,14 +472,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         /* Responsive */
         @media (max-width: 992px) {
-            .search-form input { width: 200px; }
             .page-header h1 { font-size: 2.5rem; }
             .tracking-steps { flex-wrap: wrap; }
             .tracking-step { flex: 0 0 33.333%; margin-bottom: 15px; }
         }
         
         @media (max-width: 768px) {
-            .search-form { display: none; }
             .page-header { padding: 80px 0; }
             .page-header h1 { font-size: 2rem; }
             .tracking-steps { flex-direction: column; }
@@ -707,8 +490,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         @media (max-width: 576px) {
-            .top-bar { text-align: center; }
-            .navbar-brand { font-size: 24px; }
             .page-header h1 { font-size: 1.8rem; }
             .order-details-card { padding: 15px; }
             .tracking-progress { padding: 20px; }
@@ -716,93 +497,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </style>
 </head>
 <body>
-    <!-- Top Bar -->
-    <div class="top-bar d-none d-md-block">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="d-flex">
-                        <a href="tel:+27698788382"><i class="fas fa-phone me-2"></i> +27 69 878 8382</a>
-                        <a href="mailto:homewareontap@gmail.com"><i class="fas fa-envelope me-2"></i> homewareontap@gmail.com</a>
-                    </div>
-                </div>
-                <div class="col-md-6 text-end">
-                    <a href="/homewareontap/pages/static/track-order.php">Track Order</a>
-                    <a href="/homewareontap/pages/static/faqs.php">FAQ</a>
-                    <?php if (is_logged_in()): ?>
-                        <a href="/homewareontap/pages/account/dashboard.php">My Account</a>
-                        <a href="/homewareontap/pages/auth/logout.php">Logout</a>
-                    <?php else: ?>
-                        <a href="#" data-bs-toggle="modal" data-bs-target="#loginModal">Login</a>
-                        <a href="#" data-bs-toggle="modal" data-bs-target="#registerModal">Register</a>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-light sticky-top">
-        <div class="container">
-            <a class="navbar-brand" href="/homewareontap/index.php">
-                <span>Homeware</span><span>OnTap</span>
-            </a>
-            
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <i class="fas fa-bars"></i>
-            </button>
-            
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="/homewareontap/pages/index.php">Home</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/homewareontap/pages/shop.php">Shop</a>
-                    </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="categoriesDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            Categories
-                        </a>
-                        <ul class="dropdown-menu" aria-labelledby="categoriesDropdown">
-                            <li><a class="dropdown-item" href="/homewareontap/pages/shop.php?category=kitchenware">Kitchenware</a></li>
-                            <li><a class="dropdown-item" href="/homewareontap/pages/shop.php?category=home-decor">Home Decor</a></li>
-                            <li><a class="dropdown-item" href="/homewareontap/pages/shop.php?category=bed-bath">Bed & Bath</a></li>
-                            <li><a class="dropdown-item" href="/homewareontap/pages/shop.php?category=tableware">Tableware</a></li>
-                            <li><a class="dropdown-item" href="/homewareontap/pages/shop.php?category=storage">Storage Solutions</a></li>
-                        </ul>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/homewareontap/pages/static/about.php">About Us</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/homewareontap/pages/static/contact.php">Contact</a>
-                    </li>
-                </ul>
-                
-                <form class="search-form d-none d-lg-block" id="searchForm">
-                    <input type="text" placeholder="Search for products...">
-                    <button class="search-btn"><i class="fas fa-search"></i></button>
-                </form>
-                
-                <div class="d-flex align-items-center">
-                    <a href="/homewareontap/pages/cart.php" class="cart-icon" id="cartIcon">
-                        <i class="fas fa-shopping-cart"></i>
-                        <span class="cart-badge">0</span>
-                    </a>
-                    <?php if (!is_logged_in()): ?>
-                        <a href="#" class="user-icon d-none d-md-block" data-bs-toggle="modal" data-bs-target="#loginModal">
-                            <i class="fas fa-user"></i>
-                        </a>
-                    <?php else: ?>
-                        <a href="/homewareontap/pages/account/dashboard.php" class="user-icon d-none d-md-block">
-                            <i class="fas fa-user"></i>
-                        </a>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
-    </nav>
+    <!-- Include Header -->
+    <?php include $rootPath . '/includes/header.php'; ?>
 
     <!-- Page Header Start -->
     <div class="container-fluid page-header py-5 mb-5 wow fadeIn" data-wow-delay="0.1s">
@@ -810,7 +506,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <h1 class="display-1 text-white animated slideInDown">Track Your Order</h1>
             <nav aria-label="breadcrumb animated slideInDown">
                 <ol class="breadcrumb text-uppercase mb-0">
-                    <li class="breadcrumb-item"><a class="text-white" href="/homewareontap/pages/index.php">Home</a></li>
+                    <li class="breadcrumb-item"><a class="text-white" href="<?php echo SITE_URL; ?>/index.php">Home</a></li>
                     <li class="breadcrumb-item text-primary active" aria-current="page">Track Order</li>
                 </ol>
             </nav>
@@ -925,7 +621,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <h5 class="mb-4">Order Items (<?php echo $order['item_count']; ?>)</h5>
                             <?php foreach ($order_items as $item): ?>
                                 <div class="order-item">
-                                    <img src="/homewareontap/assets/img/products/<?php echo $item['image'] ?? 'default.jpg'; ?>" 
+                                    <img src="<?php echo SITE_URL; ?>/assets/img/products/<?php echo $item['image'] ?? 'default.jpg'; ?>" 
                                          alt="<?php echo $item['product_name']; ?>" class="item-image">
                                     <div class="flex-grow-1">
                                         <h6 class="mb-1"><?php echo $item['product_name']; ?></h6>
@@ -1005,7 +701,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <a href="mailto:homewareontap@gmail.com" class="btn btn-outline-primary btn-sm">
                                     <i class="fas fa-envelope me-1"></i> Email Support
                                 </a>
-                                <a href="/homewareontap/pages/static/contact.php" class="btn btn-outline-primary btn-sm">
+                                <a href="<?php echo SITE_URL; ?>/pages/static/contact.php" class="btn btn-outline-primary btn-sm">
                                     <i class="fas fa-headset me-1"></i> Contact Form
                                 </a>
                             </div>
@@ -1016,7 +712,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
                             <h4>Order Not Found</h4>
                             <p>We couldn't find an order with the provided details. Please check your order number and email address and try again.</p>
-                            <a href="/homewareontap/pages/static/contact.php" class="btn btn-primary mt-2">Contact Support</a>
+                            <a href="<?php echo SITE_URL; ?>/pages/static/contact.php" class="btn btn-primary mt-2">Contact Support</a>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -1026,132 +722,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- Tracking Section End -->
 
     <!-- Newsletter -->
-    <section class="newsletter-section">
-        <div class="container text-center">
-            <h2>Subscribe to Our Newsletter</h2>
-            <p class="mb-4">Get updates on new products, special offers, and interior design tips.</p>
-            
-            <form class="newsletter-form" id="newsletterForm" action="/homewareontap/includes/subscribe.php" method="POST">
-                <input type="email" name="email" placeholder="Your email address" required>
-                <button type="submit">Subscribe</button>
-            </form>
-        </div>
-    </section>
+    
 
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <div class="row">
-                <div class="col-lg-3 col-md-6 mb-4 mb-md-0">
-                    <h4 class="footer-title">HomewareOnTap</h4>
-                    <p>Transforming homes with quality essentials that combine functionality with elegant design.</p>
-                    <div class="social-icons">
-                        <a href="#"><i class="fab fa-whatsapp"></i></a>
-                        <a href="#"><i class="fab fa-instagram"></i></a>
-                        <a href="#"><i class="fab fa-tiktok"></i></a>
-                    </div>
-                </div>
-                
-                <div class="col-lg-3 col-md-6 mb-4 mb-md-0">
-                    <h4 class="footer-title">Quick Links</h4>
-                    <ul class="footer-links">
-                        <li><a href="/homewareontap/pages/index.php">Home</a></li>
-                        <li><a href="/homewareontap/pages/shop.php">Shop</a></li>
-                        <li><a href="/homewareontap/pages/static/about.php">About Us</a></li>
-                        <li><a href="/homewareontap/pages/static/contact.php">Contact</a></li>
-                        <li><a href="/homewareontap/pages/static/faqs.php">FAQ</a></li>
-                    </ul>
-                </div>
-                
-                <div class="col-lg-3 col-md-6 mb-4 mb-md-0">
-                    <h4 class="footer-title">Customer Service</h4>
-                    <ul class="footer-links">
-                        <li><a href="/homewareontap/pages/static/track-order.php">Track Order</a></li>
-                        <li><a href="/homewareontap/pages/static/returns.php">Returns & Refunds</a></li>
-                        <li><a href="/homewareontap/pages/static/shipping.php">Shipping Info</a></li>
-                        <li><a href="/homewareontap/pages/static/faqs.php">FAQs</a></li>
-                        <li><a href="/homewareontap/pages/static/contact.php">Contact Us</a></li>
-                    </ul>
-                </div>
-                
-                <div class="col-lg-3 col-md-6 mb-4 mb-md-0">
-                    <h4 class="footer-title">Contact Us</h4>
-                    <ul class="contact-info">
-                        <li>
-                            <i class="fas fa-phone"></i>
-                            <span>+27 69 878 8382</span>
-                        </li>
-                        <li>
-                            <i class="fas fa-envelope"></i>
-                            <span>homewareontap@gmail.com</span>
-                        </li>
-                        <li>
-                            <i class="fas fa-map-marker-alt"></i>
-                            <span>123 Design Street, Creative District<br>Johannesburg, South Africa</span>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-            
-            <div class="copyright">
-                <p>&copy; 2025 HomewareOnTap. All Rights Reserved.</p>
-            </div>
-        </div>
-    </footer>
-    
-    <!-- Login Modal -->
-    <div class="modal fade" id="loginModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header" style="background: linear-gradient(135deg, var(--primary) 0%, #8B6145 100%); color: white; border: none;">
-                    <h5 class="modal-title">Login to Your Account</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="loginForm" action="/homewareontap/pages/auth/login-process.php" method="POST">
-                        <div class="mb-3">
-                            <label for="loginEmail" class="form-label">Email address</label>
-                            <input type="email" class="form-control" id="loginEmail" name="email" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="loginPassword" class="form-label">Password</label>
-                            <input type="password" class="form-control" id="loginPassword" name="password" required>
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">Login</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Register Modal -->
-    <div class="modal fade" id="registerModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header" style="background: linear-gradient(135deg, var(--primary) 0%, #8B6145 100%); color: white; border: none;">
-                    <h5 class="modal-title">Create an Account</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="registerForm" action="/homewareontap/pages/auth/register-process.php" method="POST">
-                        <div class="mb-3">
-                            <label for="registerName" class="form-label">Full Name</label>
-                            <input type="text" class="form-control" id="registerName" name="name" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="registerEmail" class="form-label">Email address</label>
-                            <input type="email" class="form-control" id="registerEmail" name="email" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="registerPassword" class="form-label">Password</label>
-                            <input type="password" class="form-control" id="registerPassword" name="password" required>
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">Register</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- Include Footer -->
+    <?php include $rootPath . '/includes/footer.php'; ?>
     
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

@@ -4,15 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Contact Us - HomewareOnTap</title>
-    <!-- Google Web Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- WOW CSS for animations -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
     <style>
         :root {
@@ -137,8 +133,9 @@
         
         .search-form input:focus {
             outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(166, 123, 91, 0.1);
+            /* Updated with new color consistency rule */
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 0.2rem rgba(166, 123, 91, 0.25) !important;
         }
         
         .search-btn {
@@ -204,7 +201,8 @@
         }
         
         .breadcrumb-item.active {
-            color: var(--primary);
+            /* Updated with new color consistency rule */
+            color: var(--primary) !important;
         }
         
         /* Section Title */
@@ -252,6 +250,11 @@
             margin-bottom: 20px;
         }
         
+        /* Added for color consistency */
+        .contact-icon i {
+            color: var(--primary) !important;
+        }
+        
         /* Contact Form */
         .contact-form .form-control {
             height: 55px;
@@ -267,6 +270,7 @@
         }
         
         .contact-form .form-control:focus {
+            /* Kept the original rule for contact form as it was already present, but the new global form focus rule should be used for consistency */
             border-color: var(--primary);
             box-shadow: 0 0 0 0.2rem rgba(166, 123, 91, 0.25);
         }
@@ -293,6 +297,11 @@
             color: white;
             border-radius: 50%;
             transition: all 0.3s;
+        }
+
+        /* Added for color consistency */
+        .social-contact a i {
+            color: white !important;
         }
         
         .social-contact a:hover {
@@ -372,6 +381,15 @@
         
         .accordion-body {
             background-color: var(--light);
+        }
+        
+        /* Added for accordion icon color consistency */
+        .accordion-button::after {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23A67B5B'%3e%3cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3e%3c/svg%3e");
+        }
+        
+        .accordion-button:not(.collapsed)::after {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23A67B5B'%3e%3cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3e%3c/svg%3e");
         }
         
         /* Newsletter */
@@ -463,7 +481,8 @@
         
         .contact-info i {
             margin-right: 15px;
-            color: var(--primary);
+            /* Updated for color consistency */
+            color: var(--primary) !important;
             font-size: 20px;
             margin-top: 3px;
         }
@@ -485,6 +504,11 @@
             margin-right: 10px;
             transition: all 0.3s;
             text-decoration: none;
+        }
+
+        /* Added for color consistency */
+        .social-icons a i {
+            color: white !important;
         }
         
         .social-icons a:hover {
@@ -509,6 +533,25 @@
         @keyframes fadeInUp {
             from { opacity: 0; transform: translateY(30px); }
             to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Added for theme-consistent alert colors */
+        .alert-success {
+            background-color: rgba(40, 167, 69, 0.1);
+            border-color: rgba(40, 167, 69, 0.3);
+            color: var(--success);
+        }
+
+        .alert-danger {
+            background-color: rgba(220, 53, 69, 0.1);
+            border-color: rgba(220, 53, 69, 0.3);
+            color: var(--danger);
+        }
+
+        .alert-info {
+            background-color: rgba(23, 162, 184, 0.1);
+            border-color: rgba(23, 162, 184, 0.3);
+            color: var(--info);
         }
         
         /* Responsive */
@@ -536,7 +579,6 @@
     </style>
 </head>
 <body>
-    <!-- Top Bar -->
     <div class="top-bar d-none d-md-block">
         <div class="container">
             <div class="row">
@@ -556,7 +598,6 @@
         </div>
     </div>
     
-    <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-light sticky-top">
         <div class="container">
             <a class="navbar-brand" href="/homewareontap/index.php">
@@ -613,7 +654,6 @@
         </div>
     </nav>
 
-    <!-- Page Header Start -->
     <div class="container-fluid page-header py-5 mb-5 wow fadeIn" data-wow-delay="0.1s">
         <div class="container py-5">
             <h1 class="display-1 text-white animated slideInDown">Contact Us</h1>
@@ -625,9 +665,6 @@
             </nav>
         </div>
     </div>
-    <!-- Page Header End -->
-
-    <!-- Contact Start -->
     <div class="container-xxl py-5">
         <div class="container">
             <div class="text-center mx-auto mb-5 wow fadeInUp" data-wow-delay="0.1s" style="max-width: 600px;">
@@ -675,9 +712,6 @@
             </div>
         </div>
     </div>
-    <!-- Contact End -->
-
-    <!-- Contact Form & Map Start -->
     <div class="container-xxl py-5">
         <div class="container">
             <div class="row g-5">
@@ -751,9 +785,6 @@
             </div>
         </div>
     </div>
-    <!-- Contact Form & Map End -->
-
-    <!-- FAQ Preview Start -->
     <div class="container-xxl py-5 bg-light">
         <div class="container">
             <div class="text-center mx-auto mb-5 wow fadeInUp" data-wow-delay="0.1s" style="max-width: 600px;">
@@ -808,9 +839,6 @@
             </div>
         </div>
     </div>
-    <!-- FAQ Preview End -->
-
-    <!-- Newsletter -->
     <section class="newsletter-section">
         <div class="container text-center">
             <h2>Subscribe to Our Newsletter</h2>
@@ -823,7 +851,6 @@
         </div>
     </section>
 
-    <!-- Footer -->
     <footer class="footer">
         <div class="container">
             <div class="row">
@@ -879,12 +906,11 @@
             </div>
             
             <div class="copyright">
-                <p>&copy; <?php echo date('Y'); ?> HomewareOnTap. All Rights Reserved.</p>
+                <p>© <?php echo date('Y'); ?> HomewareOnTap. All Rights Reserved.</p>
             </div>
         </div>
     </footer>
     
-    <!-- Login Modal -->
     <div class="modal fade" id="loginModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -909,7 +935,6 @@
         </div>
     </div>
     
-    <!-- Register Modal -->
     <div class="modal fade" id="registerModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -938,9 +963,7 @@
         </div>
     </div>
     
-    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- WOW JS for animations -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/wow/1.1.2/wow.min.js"></script>
     <script>
         new WOW().init();
@@ -998,6 +1021,7 @@
             
             function showMessage(text, type) {
                 formMessage.textContent = text;
+                // Updated to use theme-consistent alert classes
                 formMessage.className = 'mt-3 alert alert-' + (type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info');
                 formMessage.style.display = 'block';
                 
