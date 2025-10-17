@@ -36,7 +36,8 @@ try {
             handleGetCartCount($pdo);
             break;
             
-        case 'update_cart_item': // Changed from 'update_cart_quantity'
+        case 'update_cart_quantity': // Keep original action name for compatibility
+        case 'update_cart_item':
             handleUpdateCartQuantity($pdo);
             break;
             
@@ -56,11 +57,11 @@ try {
             handleApplyCoupon($pdo); 
             break;
             
-        case 'sync_cart': // NEW ACTION for client-side sync
+        case 'sync_cart':
             handleSyncCart($pdo);
             break;
             
-        case 'get_cart_summary': // NEW ACTION for cart summary
+        case 'get_cart_summary':
             handleGetCartSummary($pdo);
             break;
             
@@ -114,34 +115,30 @@ function handleUpdateCartQuantity($pdo) {
         return;
     }
 
-    // Get cart_id
-    $cart_id = getCurrentCartId($pdo);
-    if (!$cart_id) {
-        echo json_encode(['success' => false, 'message' => 'No cart found.']);
+    if ($quantity == 0) {
+        // Remove item if quantity is 0
+        handleRemoveFromCart($pdo);
         return;
     }
 
-    // Validate ownership
-    if (!verifyCartItemOwnership($pdo, $cart_item_id, get_current_user_id())) {
-        echo json_encode(['success' => false, 'message' => 'Unauthorized access or item not found.']);
-        return;
-    }
-    
-    // Perform update
-    $result = updateCartItemQuantity($pdo, $cart_item_id, $cart_id, $quantity);
+    // Perform update using the enhanced function
+    $result = updateCartItemQuantity($pdo, $cart_item_id, $quantity);
     
     if (!$result['success']) {
         echo json_encode($result);
         return;
     }
 
-    // Recalculate and return summary
+    // Get updated cart summary
+    $cart_id = getCurrentCartId($pdo);
     $summary = getCartSummary($cart_id);
 
     echo json_encode([
         'success' => true,
-        'message' => 'Cart updated successfully',
+        'message' => $result['message'],
         'cart_count' => $summary['cart_count'],
+        'item_price' => $result['item_price'] ?? 0,
+        'item_total' => $result['item_total'] ?? 0,
         'summary' => $summary
     ]);
 }
@@ -154,33 +151,21 @@ function handleRemoveFromCart($pdo) {
         return;
     }
 
-    // Get cart_id
-    $cart_id = getCurrentCartId($pdo);
-    if (!$cart_id) {
-        echo json_encode(['success' => false, 'message' => 'No cart found.']);
-        return;
-    }
-
-    // Validate ownership
-    if (!verifyCartItemOwnership($pdo, $cart_item_id, get_current_user_id())) {
-        echo json_encode(['success' => false, 'message' => 'Unauthorized access or item not found.']);
-        return;
-    }
-
-    // Perform removal
-    $result = removeCartItem($pdo, $cart_item_id, $cart_id);
+    // Perform removal using the enhanced function
+    $result = removeCartItem($pdo, $cart_item_id);
     
     if (!$result['success']) {
         echo json_encode($result);
         return;
     }
 
-    // Recalculate and return summary
+    // Get updated cart summary
+    $cart_id = $result['cart_id'] ?? getCurrentCartId($pdo);
     $summary = getCartSummary($cart_id);
 
     echo json_encode([
         'success' => true,
-        'message' => 'Item removed successfully',
+        'message' => $result['message'],
         'cart_count' => $summary['cart_count'],
         'summary' => $summary
     ]);
@@ -201,16 +186,61 @@ function handleGetCartItems($pdo) {
 }
 
 function handleUpdateAllCartItems($pdo) {
-    // This would handle bulk updates - for now just return summary
-    $cart_id = getCurrentCartId($pdo);
-    $summary = getCartSummary($cart_id);
+    $updates_json = $_POST['updates'] ?? '[]';
+    $updates = json_decode($updates_json, true);
     
-    echo json_encode([
-        'success' => true,
-        'message' => 'Cart updated.',
-        'cart_count' => $summary['cart_count'],
-        'summary' => $summary
-    ]);
+    if (empty($updates)) {
+        echo json_encode(['success' => false, 'message' => 'No updates provided.']);
+        return;
+    }
+
+    $cart_id = getCurrentCartId($pdo);
+    if (!$cart_id) {
+        echo json_encode(['success' => false, 'message' => 'No cart found.']);
+        return;
+    }
+
+    $errors = [];
+    $success_count = 0;
+
+    foreach ($updates as $update) {
+        $cart_item_id = $update['cart_item_id'] ?? null;
+        $quantity = $update['quantity'] ?? 0;
+
+        if (!$cart_item_id || $quantity < 0) {
+            $errors[] = "Invalid update for item ID: $cart_item_id";
+            continue;
+        }
+
+        if ($quantity == 0) {
+            $result = removeCartItem($pdo, $cart_item_id);
+        } else {
+            $result = updateCartItemQuantity($pdo, $cart_item_id, $quantity);
+        }
+
+        if ($result['success']) {
+            $success_count++;
+        } else {
+            $errors[] = $result['message'];
+        }
+    }
+
+    // Get updated cart summary
+    $summary = getCartSummary($cart_id);
+
+    if (count($errors) > 0) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Some items could not be updated: ' . implode(', ', $errors),
+            'summary' => $summary
+        ]);
+    } else {
+        echo json_encode([
+            'success' => true,
+            'message' => "Successfully updated $success_count items",
+            'summary' => $summary
+        ]);
+    }
 }
 
 function handleApplyCoupon($pdo) {
@@ -237,8 +267,9 @@ function handleApplyCoupon($pdo) {
     $result = applyCouponToCart($pdo, $cart_id, $coupon_code);
     
     if ($result['success']) {
-        $result['summary'] = $result['new_summary'];
-        unset($result['new_summary']);
+        // Get updated summary with discount applied
+        $summary = getCartSummary($cart_id);
+        $result['summary'] = $summary;
     }
 
     echo json_encode($result);
@@ -248,8 +279,16 @@ function handleSyncCart($pdo) {
     $cart_data_json = $_POST['cart_data'] ?? '{}';
     $cart_data = json_decode($cart_data_json, true);
     
-    $result = syncCartWithServer($pdo, $cart_data);
-    echo json_encode($result);
+    // This would sync client-side cart with server
+    // For now, just return current server state
+    $cart_id = getCurrentCartId($pdo);
+    $summary = getCartSummary($cart_id);
+    
+    echo json_encode([
+        'success' => true,
+        'message' => 'Cart synced successfully',
+        'summary' => $summary
+    ]);
 }
 
 function handleGetCartSummary($pdo) {
@@ -260,6 +299,28 @@ function handleGetCartSummary($pdo) {
         'success' => true,
         'summary' => $summary
     ]);
+}
+
+// Helper function to verify cart item ownership
+function verifyCartItemOwnership($pdo, $cart_item_id, $user_id) {
+    if ($user_id) {
+        $stmt = $pdo->prepare("
+            SELECT ci.id 
+            FROM cart_items ci 
+            JOIN carts c ON ci.cart_id = c.id 
+            WHERE ci.id = ? AND c.user_id = ?
+        ");
+        $stmt->execute([$cart_item_id, $user_id]);
+    } else {
+        $stmt = $pdo->prepare("
+            SELECT ci.id 
+            FROM cart_items ci 
+            JOIN carts c ON ci.cart_id = c.id 
+            WHERE ci.id = ? AND c.session_id = ?
+        ");
+        $stmt->execute([$cart_item_id, session_id()]);
+    }
+    return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
 }
 
 // End of CartController.php

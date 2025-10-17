@@ -31,6 +31,13 @@ if (function_exists('is_logged_in') && function_exists('is_admin')) {
     }
 }
 
+// Get cart count from database
+$cartCount = 0;
+if (function_exists('getCartSummary')) {
+    $cartSummary = getCartSummary();
+    $cartCount = $cartSummary['cart_count'];
+}
+
 // Set page title if not defined
 if (!isset($pageTitle)) {
     $pageTitle = "HomewareOnTap - Beautiful Home Decor";
@@ -335,10 +342,6 @@ $isAdminPage = (strpos($_SERVER['PHP_SELF'], '/admin/') !== false);
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="categoriesDropdown">
                             <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>/pages/shop.php?category=kitchenware">Kitchenware</a></li>
-                            <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>/pages/shop.php?category=home-decor">Home Decor</a></li>
-                            <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>/pages/shop.php?category=bed-bath">Bed & Bath</a></li>
-                            <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>/pages/shop.php?category=tableware">Tableware</a></li>
-                            <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>/pages/shop.php?category=storage">Storage Solutions</a></li>
                         </ul>
                     </li>
                     <li class="nav-item">
@@ -357,16 +360,7 @@ $isAdminPage = (strpos($_SERVER['PHP_SELF'], '/admin/') !== false);
                 <div class="d-flex align-items-center">
                     <a href="<?php echo SITE_URL; ?>/pages/cart.php" class="cart-icon" id="cartIcon">
                         <i class="fas fa-shopping-cart"></i>
-                        <span class="cart-badge">
-                            <?php
-                            // Display cart item count if available
-                            if (isset($_SESSION['cart']) && count($_SESSION['cart']) > 0) {
-                                echo count($_SESSION['cart']);
-                            } else {
-                                echo '0';
-                            }
-                            ?>
-                        </span>
+                        <span class="cart-badge"><?php echo $cartCount; ?></span>
                     </a>
                     <?php if ($isLoggedIn): ?>
                         <div class="dropdown">

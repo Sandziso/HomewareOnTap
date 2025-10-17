@@ -327,6 +327,42 @@ function getDefaultFAQs() {
             text-decoration: none;
         }
         
+        /* Policy Links Section */
+        .policy-links {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            margin-top: 40px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        }
+        
+        .policy-links h3 {
+            color: var(--primary);
+            margin-bottom: 30px;
+        }
+        
+        .policy-btn {
+            display: inline-block;
+            margin: 10px;
+            padding: 12px 25px;
+            background: white;
+            border: 2px solid var(--primary);
+            border-radius: 30px;
+            color: var(--primary);
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+        
+        .policy-btn:hover {
+            background: var(--primary);
+            color: white;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(166, 123, 91, 0.3);
+            text-decoration: none;
+        }
+        
         /* Newsletter */
         .newsletter-section {
             background: linear-gradient(rgba(58, 50, 41, 0.9), rgba(58, 50, 41, 0.9)), url('https://images.unsplash.com/photo-1586023492125-27b2c045efd7?ixlib=rb-4.0.3&auto=format&fit=crop&w=1758&q=80');
@@ -383,6 +419,7 @@ function getDefaultFAQs() {
             .newsletter-form button { border-radius: 30px; padding: 12px; }
             .category-filter { flex-direction: column; align-items: center; }
             .category-btn { margin: 5px 0; width: 200px; }
+            .policy-btn { display: block; margin: 10px auto; width: 80%; }
         }
         
         @media (max-width: 576px) {
@@ -458,6 +495,20 @@ function getDefaultFAQs() {
                         </div>
                     <?php endforeach; ?>
                 <?php endif; ?>
+            </div>
+            
+            <!-- Policy Links Section -->
+            <div class="policy-links">
+                <h3>More Information</h3>
+                <a href="<?php echo SITE_URL; ?>/pages/static/privacy.php" class="policy-btn">
+                    <i class="fas fa-shield-alt me-2"></i>Privacy Policy
+                </a>
+                <a href="<?php echo SITE_URL; ?>/pages/static/returns.php" class="policy-btn">
+                    <i class="fas fa-undo me-2"></i>Returns & Refunds
+                </a>
+                <a href="<?php echo SITE_URL; ?>/pages/static/terms.php" class="policy-btn">
+                    <i class="fas fa-file-contract me-2"></i>Terms & Conditions
+                </a>
             </div>
             
             <div class="contact-prompt">

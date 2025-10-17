@@ -461,13 +461,6 @@ function getCategoryProductCount($pdo, $category_id) {
 // ===================== SECURITY FUNCTIONS =====================
 
 /**
- * Validate CSRF token
- */
-function validate_csrf_token($token) {
-    return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
-}
-
-/**
  * Generate CSRF token
  */
 function generate_csrf_token() {
@@ -595,22 +588,48 @@ function getCartItem($pdo, $cart_id, $product_id) {
 
 /**
  * Add or Update an item in the cart (low-level operation).
+ *
+ * Implements: Stock check, Price consistency, Standardized return
  */
 function insertOrUpdateCartItem($pdo, $cart_id, $product_id, $quantity, $price) {
-    // Check if the item already exists in the cart
-    $existing_item = getCartItem($pdo, $cart_id, $product_id);
+    try {
+        // Get product details for validation
+        $product = getProductById($product_id);
+        
+        if (!$product || $product['status'] != 1) {
+            return ['success' => false, 'message' => 'Product not available.'];
+        }
+        
+        // Check if the item already exists in the cart
+        $existing_item = getCartItem($pdo, $cart_id, $product_id);
+        $new_quantity = $existing_item ? ($existing_item['quantity'] + $quantity) : $quantity;
+        
+        // Stock Validation
+        if ($new_quantity > $product['stock_quantity']) {
+            return [
+                'success' => false, 
+                'message' => 'Insufficient stock. Only ' . $product['stock_quantity'] . ' items available.',
+                'max_quantity' => $product['stock_quantity']
+            ];
+        }
 
-    if ($existing_item) {
-        // Update quantity
-        $new_quantity = $existing_item['quantity'] + $quantity;
-        $sql = "UPDATE cart_items SET quantity = ?, price = ? WHERE id = ?";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute([$new_quantity, $price, $existing_item['id']]);
-    } else {
-        // Add new item
-        $sql = "INSERT INTO cart_items (cart_id, product_id, quantity, price) VALUES (?, ?, ?, ?)";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute([$cart_id, $product_id, $quantity, $price]);
+        if ($existing_item) {
+            // Update quantity and price (current price is used as originally implemented)
+            $sql = "UPDATE cart_items SET quantity = ?, price = ? WHERE id = ?";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$new_quantity, $product['price'], $existing_item['id']]);
+        } else {
+            // Add new item
+            $sql = "INSERT INTO cart_items (cart_id, product_id, quantity, price) VALUES (?, ?, ?, ?)";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$cart_id, $product_id, $quantity, $product['price']]);
+        }
+        
+        return ['success' => true, 'message' => 'Cart item updated/added successfully.'];
+        
+    } catch (PDOException $e) {
+        error_log("Insert/update cart item error: " . $e->getMessage());
+        return ['success' => false, 'message' => 'Error updating cart item.'];
     }
 }
 
@@ -804,10 +823,19 @@ function calculateTaxAmount($cart_total) {
 
 /**
  * High-level function to handle adding an item to cart from an API request.
+ *
+ * Implements: Enhanced stock check and uses standardized insertOrUpdateCartItem.
  */
 function addToCart($product_id, $quantity) {
     $pdo = getDBConnection();
     if (!$pdo) return ['success' => false, 'message' => 'Database connection error.'];
+
+    // Validate product
+    $product = getProductById($product_id);
+    
+    if (!$product || $product['status'] != 1) {
+        return ['success' => false, 'message' => 'Product not available.'];
+    }
 
     // Get or create cart
     $cart_id = getCurrentCartId($pdo);
@@ -815,15 +843,12 @@ function addToCart($product_id, $quantity) {
         $cart_id = createCart($pdo);
     }
 
-    // Check if product exists and is in stock
-    $product = getProductById($product_id);
-
-    if (!$product) {
-        return ['success' => false, 'message' => 'Product not found.'];
+    // Insert or update item (uses standardized helper)
+    $result = insertOrUpdateCartItem($pdo, $cart_id, $product_id, $quantity, $product['price']);
+    
+    if (!$result['success']) {
+        return $result; // Returns the failure message with stock info if applicable
     }
-
-    // Insert or update item (using the low-level helper)
-    insertOrUpdateCartItem($pdo, $cart_id, $product_id, $quantity, $product['price']);
     
     // Get updated cart data
     $summary = getCartSummary($cart_id);
@@ -831,9 +856,7 @@ function addToCart($product_id, $quantity) {
     return [
         'success' => true, 
         'message' => 'Product added to cart',
-        'data' => [
-            'cart_count' => $summary['cart_count']
-        ]
+        'data' => $summary
     ];
 }
 
@@ -981,6 +1004,29 @@ function getEmptyCartSummary() {
         'free_shipping_threshold' => 250,
         'free_shipping_progress' => 0
     ];
+}
+
+/**
+ * Cleanup abandoned carts (non-logged-in) older than a specified number of days.
+ */
+function cleanupAbandonedCarts($pdo, $days_old = 7) {
+    if (!$pdo) return false;
+    
+    try {
+        // Delete cart items and carts in a single query
+        $stmt = $pdo->prepare("
+            DELETE c, ci 
+            FROM carts c 
+            LEFT JOIN cart_items ci ON c.id = ci.cart_id 
+            WHERE c.user_id IS NULL 
+            AND c.created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
+        ");
+        $stmt->execute([$days_old]);
+        return true;
+    } catch (PDOException $e) {
+        error_log("Cleanup abandoned carts error: " . $e->getMessage());
+        return false;
+    }
 }
 
 // ===================== ORDER FUNCTIONS =====================
@@ -1247,8 +1293,7 @@ function getFeaturedProducts($limit = 6, $pdo = null) {
     
     try {
         $stmt = $pdo->prepare("
-            SELECT p.* 
-            FROM products p 
+            SELECT p.* FROM products p 
             WHERE p.status = 1 AND p.is_featured = 1
             ORDER BY p.created_at DESC 
             LIMIT :limit
@@ -1273,8 +1318,7 @@ function getBestsellerProducts($limit = 6, $pdo = null) {
     
     try {
         $stmt = $pdo->prepare("
-            SELECT p.* 
-            FROM products p 
+            SELECT p.* FROM products p 
             WHERE p.status = 1 AND p.is_bestseller = 1
             ORDER BY p.created_at DESC 
             LIMIT :limit
@@ -1299,8 +1343,7 @@ function getNewProducts($limit = 6, $pdo = null) {
     
     try {
         $stmt = $pdo->prepare("
-            SELECT p.* 
-            FROM products p 
+            SELECT p.* FROM products p 
             WHERE p.status = 1 AND p.is_new = 1
             ORDER BY p.created_at DESC 
             LIMIT :limit
@@ -2000,5 +2043,3 @@ function getConversionRateData($days = 30, $pdo = null) {
         return [];
     }
 }
-
-?>

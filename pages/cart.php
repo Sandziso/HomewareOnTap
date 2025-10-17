@@ -573,7 +573,6 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
         </div>
         <?php endif; ?>
     </div>
-
     <div class="modal fade" id="addAddressModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -639,526 +638,512 @@ if (isset($_GET['checkout']) && $_GET['checkout'] == '1' && !is_logged_in()) {
             </div>
         </div>
     </div>
-    
     <?php include '../includes/footer.php'; ?>
-    
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
     <script src="../assets/js/main.js"></script>
+<script>
+    console.log('Cart debugging enabled');
     
-    <script>
-        console.log('Cart debugging enabled');
+    $(document).ready(function() {
+        // Initialize tooltips
+        $('[data-bs-toggle="tooltip"]').tooltip();
         
-        $(document).ready(function() {
-            // Initialize tooltips
-            $('[data-bs-toggle="tooltip"]').tooltip();
-            
-            // Update cart count on page load
-            updateCartCount();
-            
-            // Add to cart functionality for recently viewed products
-            $('.add-to-cart').on('click', function() {
-                const productId = $(this).data('product-id');
-                addToCart(productId, 1);
-            });
-            
-            // Wishlist toggle
-            $('.product-wishlist').on('click', function(e) {
-                e.preventDefault();
-                const productId = $(this).data('product-id');
-                $(this).find('i').toggleClass('far fa-heart fas fa-heart');
-                
-                // AJAX call to add/remove from wishlist
-                toggleWishlist(productId);
-            });
+        // Update cart count on page load
+        updateCartCount();
+        
+        // Add to cart functionality for recently viewed products
+        $('.add-to-cart').on('click', function() {
+            const productId = $(this).data('product-id');
+            addToCart(productId, 1);
         });
         
-        // ==========================================================
-        // CartManager Integration and Fallback Functions
-        // ==========================================================
+        // Wishlist toggle
+        $('.product-wishlist').on('click', function(e) {
+            e.preventDefault();
+            const productId = $(this).data('product-id');
+            $(this).find('i').toggleClass('far fa-heart fas fa-heart');
+            
+            // AJAX call to add/remove from wishlist
+            toggleWishlist(productId);
+        });
+    });
+    
+    // ==========================================================
+    // CartManager Integration and Fallback Functions
+    // ==========================================================
+    
+    // Enhanced fallback function for updating quantity
+    function fallbackUpdateQuantity(cartItemId, newQuantity) {
+        console.log('Executing fallbackUpdateQuantity for item:', cartItemId, 'quantity:', newQuantity);
+        const $input = $(`input[data-product-id="${cartItemId}"]`);
+        const oldValue = $input.data('oldValue') || $input.val();
+        $input.prop('disabled', true);
         
-        // Fallback function for updating quantity (original AJAX logic)
-        function fallbackUpdateQuantity(cartItemId, newQuantity) {
-            console.log('Executing fallbackUpdateQuantity (AJAX)...');
-            const $input = $(`input[data-product-id="${cartItemId}"]`);
-            // Set old value before any operation
-            const oldValue = $input.data('oldValue');
-            $input.prop('disabled', true);
-            
-            // Get the current row
-            const $row = $input.closest('tr');
-            // Extract item price (Unit Price column, index 1)
-            const priceText = $row.find('td').eq(1).text().replace('R', '').replace(/,/g, '');
-            const price = parseFloat(priceText);
-            
-            if (isNaN(price)) {
-                console.error('Could not parse item price:', priceText);
-                showToast('Error: Could not determine item price.', 'error');
-                $input.prop('disabled', false).val(oldValue);
-                return;
-            }
-            
-            $.ajax({
-                url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
-                method: 'POST',
-                data: {
-                    action: 'update_cart_quantity',
-                    cart_item_id: cartItemId,
-                    quantity: newQuantity
-                },
-                success: function(response) {
-                    $input.prop('disabled', false);
-                    try {
-                        console.log('Update success response:', response);
-                        const data = JSON.parse(response);
-                        if (data.success) {
-                            // Update the input value
-                            $input.val(newQuantity);
-                            
-                            // Update the total price for this item (Total column, index 3)
-                            $row.find('td').eq(3).text('R' + (price * newQuantity).toFixed(2));
-                            
-                            // Update the cart summary using the 'summary' object from the controller
-                            const summary = data.summary;
-                            updateCartSummary(summary.subtotal, summary.shipping_cost, summary.tax_amount, summary.grand_total);
-                            
-                            // Update cart count in header
-                            updateCartCount();
-                            
-                            showToast('Cart updated successfully!', 'success');
-                            
-                            // Revert value for next operation's oldValue storage
-                            $input.data('oldValue', newQuantity); 
-                        } else {
-                            console.error('Server reported error:', data.message);
-                            showToast('Error: ' + data.message, 'error');
-                            // Revert input value on failure
-                            $input.val(oldValue);
-                        }
-                    } catch (e) {
-                        console.error('Error parsing JSON response or processing data:', e, 'Raw response:', response);
-                        showToast('Error updating cart', 'error');
-                        $input.val(oldValue);
+        // Get the current row
+        const $row = $input.closest('tr');
+        
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
+            method: 'POST',
+            dataType: 'json', // <--- ADDED: Explicitly expect JSON
+            data: {
+                action: 'update_cart_quantity',
+                cart_item_id: cartItemId,
+                quantity: newQuantity
+            },
+            success: function(data) { // <--- MODIFIED: Accepts data object directly
+                $input.prop('disabled', false);
+                console.log('Update success response:', data);
+                
+                if (data.success) {
+                    // Update the input value
+                    $input.val(newQuantity);
+                    
+                    // Update item price and total if provided
+                    if (data.item_price && data.item_total) {
+                        $row.find('td').eq(1).text('R' + parseFloat(data.item_price).toFixed(2));
+                        $row.find('td').eq(3).text('R' + parseFloat(data.item_total).toFixed(2));
+                    } else {
+                        // Fallback: calculate locally
+                        const priceText = $row.find('td').eq(1).text().replace('R', '').replace(/,/g, '');
+                        const price = parseFloat(priceText);
+                        $row.find('td').eq(3).text('R' + (price * newQuantity).toFixed(2));
                     }
-                },
-                error: function(jqXHR, textStatus, errorThrown) {
-                    $input.prop('disabled', false);
-                    console.error('AJAX Error:', textStatus, errorThrown, jqXHR.responseText);
-                    showToast('Error updating cart (Network/Server)', 'error');
+                    
+                    // Update the cart summary
+                    if (data.summary) {
+                        updateCartSummaryFromObject(data.summary);
+                    }
+                    
+                    // Update cart count in header
+                    updateCartCount();
+                    
+                    showToast(data.message || 'Cart updated successfully!', 'success');
+                    
+                    // Update oldValue for next operation
+                    $input.data('oldValue', newQuantity);
+                } else {
+                    console.error('Server reported error:', data.message);
+                    showToast('Error: ' + data.message, 'error');
+                    // Revert input value on failure
                     $input.val(oldValue);
                 }
-            });
-        }
-        
-        // Update quantity with buttons - USE CART MANAGER or FALLBACK
-        function updateQuantity(cartItemId, newQuantity) {
-            console.log('Updating item:', cartItemId, 'to quantity:', newQuantity);
-            if (newQuantity < 1) newQuantity = 1;
-            
-            // Use CartManager instead of direct AJAX
-            if (window.cartManager) {
-                // Modified to use the promise-based logging provided in the prompt's suggested debug code
-                window.cartManager.updateQuantity(cartItemId, newQuantity)
-                    .then(result => console.log('Update result (CartManager):', result))
-                    .catch(error => console.error('Update error (CartManager):', error));
-            } else {
-                console.error('CartManager not found! Using fallback AJAX.');
-                // Fallback to original AJAX
-                fallbackUpdateQuantity(cartItemId, newQuantity);
+            },
+            error: function(jqXHR, textStatus, errorThrown) {
+                $input.prop('disabled', false);
+                console.error('AJAX Error:', textStatus, errorThrown, jqXHR.responseText);
+                showToast('Error updating cart (Network/Server)', 'error');
+                $input.val(oldValue);
             }
+        });
+    }
+    
+    // Update quantity with buttons
+    function updateQuantity(cartItemId, newQuantity) {
+        console.log('Updating item:', cartItemId, 'to quantity:', newQuantity);
+        if (newQuantity < 1) newQuantity = 1;
+        
+        // Use CartManager if available, otherwise fallback
+        if (window.cartManager) {
+            window.cartManager.updateQuantity(cartItemId, newQuantity)
+                .then(result => console.log('Update result (CartManager):', result))
+                .catch(error => {
+                    console.error('Update error (CartManager):', error);
+                    // Fallback to AJAX
+                    fallbackUpdateQuantity(cartItemId, newQuantity);
+                });
+        } else {
+            console.log('CartManager not found! Using fallback AJAX.');
+            fallbackUpdateQuantity(cartItemId, newQuantity);
         }
+    }
+    
+    // Enhanced fallback function for applying coupon
+    function fallbackApplyCoupon(couponCode) {
+        showLoading(true);
         
-        // Fallback function for applying coupon (original AJAX logic)
-        function fallbackApplyCoupon(couponCode) {
-            showLoading(true);
-            
-            $.ajax({
-                url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
-                method: 'POST',
-                data: {
-                    action: 'apply_coupon',
-                    coupon_code: couponCode
-                },
-                success: function(response) {
-                    showLoading(false);
-                    try {
-                        const data = JSON.parse(response);
-                        if (data.success) {
-                            $('#discount-row').show();
-                            // Use summary object for updated totals
-                            const summary = data.summary;
-                            const discountAmount = summary.subtotal_discount || 0; // Assuming the summary provides a discount value
-                            
-                            $('#discount-amount').text('R' + parseFloat(discountAmount).toFixed(2));
-                            updateCartSummary(summary.subtotal, summary.shipping_cost, summary.tax_amount, summary.grand_total);
-                            showToast('Coupon applied successfully!', 'success');
-                        } else {
-                            showToast('Error: ' + data.message, 'error');
-                        }
-                    } catch (e) {
-                        showToast('Error applying coupon', 'error');
-                    }
-                },
-                error: function() {
-                    showLoading(false);
-                    showToast('Error applying coupon', 'error');
-                }
-            });
-        }
-        
-        // Apply coupon - USE CART MANAGER or FALLBACK
-        function applyCoupon() {
-            const couponCode = $('#couponCode').val().trim();
-            if (!couponCode) {
-                showToast('Please enter a coupon code', 'error');
-                return;
-            }
-            
-            if (window.cartManager) {
-                window.cartManager.applyCoupon(couponCode);
-            } else {
-                // Fallback to original AJAX
-                fallbackApplyCoupon(couponCode);
-            }
-        }
-        
-        // ==========================================================
-        // Unmodified Functions (Keep using existing logic/AJAX)
-        // ==========================================================
-        
-        // Update quantity with input field
-        function updateQuantityInput(input) {
-            const $input = $(input);
-            const cartItemId = $input.data('product-id');
-            let newQuantity = parseInt($input.val());
-            
-            // Store old value for revert
-            $input.data('oldValue', $input.data('oldValue') || $input.val());
-            
-            if (isNaN(newQuantity) || newQuantity < 1) {
-                newQuantity = 1;
-                $input.val(newQuantity);
-            }
-            
-            // Only update if quantity changed
-            if (newQuantity !== parseInt($input.data('oldValue'))) {
-                updateQuantity(cartItemId, newQuantity);
-            }
-        }
-        
-        // Update all cart items at once
-        function updateAllCartItems() {
-            showLoading(true);
-            
-            const updates = [];
-            $('.qty-input').each(function() {
-                const cartItemId = $(this).data('product-id');
-                const quantity = parseInt($(this).val());
-                
-                if (!isNaN(quantity) && quantity > 0) {
-                    updates.push({
-                        cart_item_id: cartItemId,
-                        quantity: quantity
-                    });
-                }
-            });
-            
-            if (updates.length === 0) {
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
+            method: 'POST',
+            dataType: 'json', // <--- ADDED: Explicitly expect JSON
+            data: {
+                action: 'apply_coupon',
+                coupon_code: couponCode
+            },
+            success: function(data) { // <--- MODIFIED: Accepts data object directly
                 showLoading(false);
-                showToast('No items to update', 'warning');
-                return;
+                
+                if (data.success) {
+                    $('#discount-row').show();
+                    // Use summary object for updated totals
+                    if (data.summary) {
+                        updateCartSummaryFromObject(data.summary);
+                    }
+                    $('#discount-amount').text('R' + parseFloat(data.discount_amount || 0).toFixed(2));
+                    showToast(data.message || 'Coupon applied successfully!', 'success');
+                } else {
+                    showToast('Error: ' + data.message, 'error');
+                }
+            },
+            error: function() {
+                showLoading(false);
+                showToast('Error applying coupon', 'error');
             }
+        });
+    }
+    
+    // Apply coupon
+    function applyCoupon() {
+        const couponCode = $('#couponCode').val().trim();
+        if (!couponCode) {
+            showToast('Please enter a coupon code', 'error');
+            return;
+        }
+        
+        if (window.cartManager) {
+            window.cartManager.applyCoupon(couponCode)
+                .then(result => console.log('Coupon result (CartManager):', result))
+                .catch(error => {
+                    console.error('Coupon error (CartManager):', error);
+                    // Fallback to AJAX
+                    fallbackApplyCoupon(couponCode);
+                });
+        } else {
+            fallbackApplyCoupon(couponCode);
+        }
+    }
+    
+    // ==========================================================
+    // Enhanced Cart Functions
+    // ==========================================================
+    
+    // Update quantity with input field
+    function updateQuantityInput(input) {
+        const $input = $(input);
+        const cartItemId = $input.data('product-id');
+        let newQuantity = parseInt($input.val());
+        
+        // Store old value for revert
+        $input.data('oldValue', $input.data('oldValue') || $input.val());
+        
+        if (isNaN(newQuantity) || newQuantity < 1) {
+            newQuantity = 1;
+            $input.val(newQuantity);
+        }
+        
+        // Only update if quantity changed
+        if (newQuantity !== parseInt($input.data('oldValue'))) {
+            updateQuantity(cartItemId, newQuantity);
+        }
+    }
+    
+    // Enhanced: Update all cart items at once
+    function updateAllCartItems() {
+        showLoading(true);
+        
+        const updates = [];
+        $('.qty-input').each(function() {
+            const cartItemId = $(this).data('product-id');
+            const quantity = parseInt($(this).val());
+            
+            if (!isNaN(quantity) && quantity >= 0) {
+                updates.push({
+                    cart_item_id: cartItemId,
+                    quantity: quantity
+                });
+            }
+        });
+        
+        if (updates.length === 0) {
+            showLoading(false);
+            showToast('No items to update', 'warning');
+            return;
+        }
+        
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
+            method: 'POST',
+            dataType: 'json', // <--- ADDED: Explicitly expect JSON
+            data: {
+                action: 'update_all_cart_items',
+                updates: JSON.stringify(updates)
+            },
+            success: function(data) { // <--- MODIFIED: Accepts data object directly
+                showLoading(false);
+                
+                if (data.success) {
+                    // Update the cart summary
+                    if (data.summary) {
+                        updateCartSummaryFromObject(data.summary);
+                    }
+                    
+                    // Update cart count in header
+                    updateCartCount();
+                    
+                    showToast(data.message || 'Cart updated successfully!', 'success');
+                    
+                    // Reload page to reflect any stock/item count changes
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1000);
+                } else {
+                    showToast('Error: ' + data.message, 'error');
+                }
+            },
+            error: function() {
+                showLoading(false);
+                showToast('Error updating cart', 'error');
+            }
+        });
+    }
+    
+    // Enhanced: Remove item from cart
+    function removeFromCart(cartItemId) {
+        if (confirm('Are you sure you want to remove this item from your cart?')) {
+            showLoading(true);
             
             $.ajax({
                 url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
                 method: 'POST',
+                dataType: 'json', // <--- ADDED: Explicitly expect JSON
                 data: {
-                    action: 'update_all_cart_items',
-                    // NOTE: This controller action expects an array of updates/removals
-                    // The backend needs to be robust to handle this array
-                    updates: JSON.stringify(updates) 
+                    action: 'remove_from_cart',
+                    cart_item_id: cartItemId
                 },
-                success: function(response) {
+                success: function(data) { // <--- MODIFIED: Accepts data object directly
                     showLoading(false);
-                    try {
-                        const data = JSON.parse(response);
-                        if (data.success) {
+                    
+                    if (data.success) {
+                        // Remove the row from the table with animation
+                        $(`input[data-product-id="${cartItemId}"]`).closest('tr').fadeOut(300, function() {
+                            $(this).remove();
+                            
                             // Update the cart summary
-                            const summary = data.summary;
-                            updateCartSummary(summary.subtotal, summary.shipping_cost, summary.tax_amount, summary.grand_total);
+                            if (data.summary) {
+                                updateCartSummaryFromObject(data.summary);
+                            }
                             
                             // Update cart count in header
                             updateCartCount();
                             
-                            showToast('Cart updated successfully!', 'success');
-                            
-                            // Reload page to reflect any stock/item count changes
-                            setTimeout(() => {
-                                location.reload();
-                            }, 1000);
-                        } else {
-                            showToast('Error: ' + data.message, 'error');
-                        }
-                    } catch (e) {
-                        showToast('Error updating cart', 'error');
+                            // If cart is empty, reload the page to show empty cart message
+                            if (data.cart_count === 0 || $('.cart-table tbody tr').length === 0) {
+                                setTimeout(() => {
+                                    location.reload();
+                                }, 500);
+                            }
+                        });
+                        
+                        showToast(data.message || 'Item removed from cart', 'info');
+                    } else {
+                        showToast('Error: ' + data.message, 'error');
                     }
                 },
                 error: function() {
                     showLoading(false);
-                    showToast('Error updating cart', 'error');
+                    showToast('Error removing item from cart', 'error');
                 }
             });
         }
+    }
+    
+    // Enhanced: Update cart summary from object
+    function updateCartSummaryFromObject(summary) {
+        // Update all summary elements
+        $('.summary-item:eq(0) span:last').text('R' + parseFloat(summary.cart_total || 0).toFixed(2));
+        $('.summary-item:eq(1) span:last').text('R' + parseFloat(summary.shipping_cost || 0).toFixed(2));
+        $('.summary-item:eq(2) span:last').text('R' + parseFloat(summary.tax_amount || 0).toFixed(2));
         
-        // Remove item from cart
-        function removeFromCart(cartItemId) {
-            if (confirm('Are you sure you want to remove this item from your cart?')) {
-                showLoading(true);
-                
-                $.ajax({
-                    url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
-                    method: 'POST',
-                    data: {
-                        action: 'remove_from_cart',
-                        cart_item_id: cartItemId
-                    },
-                    success: function(response) {
-                        showLoading(false);
-                        try {
-                            const data = JSON.parse(response);
-                            if (data.success) {
-                                // Remove the row from the table with animation
-                                $(`input[data-product-id="${cartItemId}"]`).closest('tr').fadeOut(300, function() {
-                                    $(this).remove();
-                                    
-                                    // Update the cart summary
-                                    const summary = data.summary;
-                                    updateCartSummary(summary.subtotal, summary.shipping_cost, summary.tax_amount, summary.grand_total);
-                                    
-                                    // Update cart count in header
-                                    updateCartCount();
-                                    
-                                    // If cart is empty, reload the page to show empty cart message
-                                    if (data.cart_count === 0) {
-                                        setTimeout(() => {
-                                            location.reload();
-                                        }, 500);
-                                    }
-                                });
-                                
-                                showToast('Item removed from cart', 'info');
-                            } else {
-                                showToast('Error: ' + data.message, 'error');
-                            }
-                        } catch (e) {
-                            showToast('Error removing item from cart', 'error');
-                        }
-                    },
-                    error: function() {
-                        showLoading(false);
-                        showToast('Error removing item from cart', 'error');
-                    }
-                });
+        // Handle discount row
+        if (summary.discount_amount > 0) {
+            $('#discount-row').show();
+            $('#discount-amount').text('R' + parseFloat(summary.discount_amount).toFixed(2));
+        } else {
+            $('#discount-row').hide();
+        }
+        
+        // Update grand total
+        $('.summary-item.summary-total span:last').text('R' + parseFloat(summary.grand_total || 0).toFixed(2));
+        
+        // Update free shipping progress if available
+        if (summary.free_shipping_progress !== undefined) {
+            // Update progress bar if exists
+            const $progressBar = $('.free-shipping-progress');
+            if ($progressBar.length) {
+                $progressBar.css('width', summary.free_shipping_progress + '%');
             }
         }
-        
-        // Update cart summary
-        function updateCartSummary(cartTotal, shippingCost, taxAmount, grandTotal) {
-            // NOTE: The PHP logic calculates all these values before page load.
-            // This function uses the values returned by the AJAX controller action.
-            
-            // Subtotal
-            $('.summary-item:eq(0) span:last').text('R' + parseFloat(cartTotal).toFixed(2));
-            // Shipping
-            $('.summary-item:eq(1) span:last').text('R' + parseFloat(shippingCost).toFixed(2));
-            // Tax
-            $('.summary-item:eq(2) span:last').text('R' + parseFloat(taxAmount).toFixed(2));
-            
-            // Total (Grand Total)
-            // It uses the special class summary-total for the last row
-            $('.summary-item.summary-total span:last').text('R' + parseFloat(grandTotal).toFixed(2));
-            
-            // The discount row visibility must be handled separately when applyCoupon is successful.
-        }
-        
-        // Update cart count
-        function updateCartCount() {
-            $.ajax({
-                url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
-                method: 'POST',
-                data: {
-                    action: 'get_cart_count'
-                },
-                success: function(response) {
-                    try {
-                        const data = JSON.parse(response);
-                        if (data.success) {
-                            $('.cart-count').text(data.cart_count); // Use data.cart_count based on controller output
-                        }
-                    } catch (e) {
-                        console.error('Error updating cart count');
-                    }
+    }
+    
+    // Update cart count
+    function updateCartCount() {
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
+            method: 'POST',
+            dataType: 'json', // <--- ADDED: Explicitly expect JSON
+            data: {
+                action: 'get_cart_count'
+            },
+            success: function(data) { // <--- MODIFIED: Accepts data object directly
+                if (data.success) {
+                    $('.cart-count').text(data.cart_count);
                 }
-            });
-        }
-        
-        // Save address from cart page
-        function saveAddressFromCart() {
-            // Check if user is logged in
-            <?php if (!is_logged_in()): ?>
-                alert('Please login to save addresses');
-                return;
-            <?php endif; ?>
+            },
+            error: function() {
+                console.error('Error updating cart count');
+            }
+        });
+    }
+    
+    // Save address from cart page
+    function saveAddressFromCart() {
+        // Check if user is logged in
+        <?php if (!is_logged_in()): ?>
+            alert('Please login to save addresses');
+            return;
+        <?php endif; ?>
 
-            // Get form data
-            const formData = {
-                first_name: document.getElementById('first_name').value,
-                last_name: document.getElementById('last_name').value,
-                street: document.getElementById('street').value,
-                city: document.getElementById('city').value,
-                province: document.getElementById('province').value,
-                postal_code: document.getElementById('postal_code').value,
-                country: document.getElementById('country').value,
-                phone: document.getElementById('phone').value,
-                set_default: document.getElementById('set_default').checked ? 1 : 0,
-                type: 'shipping'
-            };
-            
-            // Validate required fields
-            for (let key in formData) {
-                if (key !== 'set_default' && key !== 'type' && formData[key] === '') {
-                    showToast('Please fill in all required fields', 'warning');
-                    return;
-                }
-            }
-            
-            // Send AJAX request to save address
-            $.ajax({
-                url: '<?php echo SITE_URL; ?>/system/controllers/AddressController.php',
-                type: 'POST',
-                data: {
-                    action: 'add_address',
-                    ...formData
-                },
-                success: function(response) {
-                    try {
-                        const result = JSON.parse(response);
-                        if (result.success) {
-                            $('#addAddressModal').modal('hide');
-                            showToast('Address saved successfully!', 'success');
-                            // Reload the page to show the new address
-                            setTimeout(() => {
-                                location.reload();
-                            }, 1500);
-                        } else {
-                            showToast('Error saving address: ' + result.message, 'error');
-                        }
-                    } catch (e) {
-                        showToast('Error processing response', 'error');
-                    }
-                },
-                error: function() {
-                    showToast('Network error. Please try again.', 'error');
-                }
-            });
-        }
+        // Get form data
+        const formData = {
+            first_name: document.getElementById('first_name').value,
+            last_name: document.getElementById('last_name').value,
+            street: document.getElementById('street').value,
+            city: document.getElementById('city').value,
+            province: document.getElementById('province').value,
+            postal_code: document.getElementById('postal_code').value,
+            country: document.getElementById('country').value,
+            phone: document.getElementById('phone').value,
+            set_default: document.getElementById('set_default').checked ? 1 : 0,
+            type: 'shipping'
+        };
         
-        // Select address card
-        function selectAddress(card, type) {
-            // Remove selected class from all cards of this type
-            const allCards = document.querySelectorAll('.address-card');
-            allCards.forEach(function(el) {
-                el.classList.remove('selected');
-            });
-            
-            // Add selected class to clicked card
-            card.classList.add('selected');
-            
-            // Check the radio button
-            const radio = card.querySelector('input[type="radio"]');
-            radio.checked = true;
-        }
-        
-        // Show loading overlay
-        function showLoading(show) {
-            if (show) {
-                $('.loading-overlay').fadeIn();
-            } else {
-                $('.loading-overlay').fadeOut();
+        // Validate required fields
+        for (let key in formData) {
+            if (key !== 'set_default' && key !== 'type' && formData[key] === '') {
+                showToast('Please fill in all required fields', 'warning');
+                return;
             }
         }
         
-        // Show toast notification
-        function showToast(message, type = 'success') {
-            const toastId = 'toast-' + Date.now();
-            const bgClass = type === 'success' ? 'text-bg-success' : 
-                           type === 'error' ? 'text-bg-danger' : 
-                           type === 'warning' ? 'text-bg-warning' : 'text-bg-info';
-            
-            const iconClass = type === 'success' ? 'fa-check-circle' : 
-                             type === 'error' ? 'fa-exclamation-circle' : 
-                             type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle';
-            
-            const toastHtml = `
-                <div id="${toastId}" class="toast align-items-center ${bgClass} border-0" role="alert">
-                    <div class="d-flex">
-                        <div class="toast-body">
-                            <i class="fas ${iconClass} me-2"></i>${message}
-                        </div>
-                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        // Send AJAX request to save address
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>/system/controllers/AddressController.php',
+            type: 'POST',
+            dataType: 'json', // <--- ADDED: Explicitly expect JSON
+            data: {
+                action: 'add_address',
+                ...formData
+            },
+            success: function(result) { // <--- MODIFIED: Accepts data object directly
+                if (result.success) {
+                    $('#addAddressModal').modal('hide');
+                    showToast('Address saved successfully!', 'success');
+                    // Reload the page to show the new address
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1500);
+                } else {
+                    showToast('Error saving address: ' + result.message, 'error');
+                }
+            },
+            error: function() {
+                showToast('Network error. Please try again.', 'error');
+            }
+        });
+    }
+    
+    // Select address card
+    function selectAddress(card, type) {
+        // Remove selected class from all cards of this type
+        const allCards = document.querySelectorAll('.address-card');
+        allCards.forEach(function(el) {
+            el.classList.remove('selected');
+        });
+        
+        // Add selected class to clicked card
+        card.classList.add('selected');
+        
+        // Check the radio button
+        const radio = card.querySelector('input[type="radio"]');
+        radio.checked = true;
+    }
+    
+    // Show loading overlay
+    function showLoading(show) {
+        if (show) {
+            $('.loading-overlay').fadeIn();
+        } else {
+            $('.loading-overlay').fadeOut();
+        }
+    }
+    
+    // Show toast notification
+    function showToast(message, type = 'success') {
+        const toastId = 'toast-' + Date.now();
+        const bgClass = type === 'success' ? 'text-bg-success' : 
+                        type === 'error' ? 'text-bg-danger' : 
+                        type === 'warning' ? 'text-bg-warning' : 'text-bg-info';
+        
+        const iconClass = type === 'success' ? 'fa-check-circle' : 
+                          type === 'error' ? 'fa-exclamation-circle' : 
+                          type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle';
+        
+        const toastHtml = `
+            <div id="${toastId}" class="toast align-items-center ${bgClass} border-0" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body">
+                        <i class="fas ${iconClass} me-2"></i>${message}
                     </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
                 </div>
-            `;
-            
-            $('.toast-container').append(toastHtml);
-            const toastElement = document.getElementById(toastId);
-            const toast = new bootstrap.Toast(toastElement, {
-                autohide: true,
-                delay: 4000
-            });
-            toast.show();
-            
-            toastElement.addEventListener('hidden.bs.toast', function () {
-                $(this).remove();
-            });
-        }
+            </div>
+        `;
         
-        // Add to cart function
-        function addToCart(productId, quantity) {
-            $.ajax({
-                url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
-                method: 'POST',
-                data: {
-                    action: 'add_to_cart',
-                    product_id: productId,
-                    quantity: quantity
-                },
-                success: function(response) {
-                    try {
-                        const data = JSON.parse(response);
-                        if (data.success) {
-                            // Update cart count
-                            updateCartCount();
-                            showToast('Product added to cart!', 'success');
-                        } else {
-                            showToast('Error: ' + data.message, 'error');
-                        }
-                    } catch (e) {
-                        showToast('Error adding to cart', 'error');
-                    }
-                },
-                error: function() {
-                    showToast('Error adding to cart', 'error');
+        $('.toast-container').append(toastHtml);
+        const toastElement = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastElement, {
+            autohide: true,
+            delay: 4000
+        });
+        toast.show();
+        
+        toastElement.addEventListener('hidden.bs.toast', function () {
+            $(this).remove();
+        });
+    }
+    
+    // Add to cart function
+    function addToCart(productId, quantity) {
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>/system/controllers/CartController.php',
+            method: 'POST',
+            dataType: 'json', // <--- ADDED: Explicitly expect JSON
+            data: {
+                action: 'add_to_cart',
+                product_id: productId,
+                quantity: quantity
+            },
+            success: function(data) { // <--- MODIFIED: Accepts data object directly
+                if (data.success) {
+                    // Update cart count
+                    updateCartCount();
+                    showToast('Product added to cart!', 'success');
+                } else {
+                    showToast('Error: ' + data.message, 'error');
                 }
-            });
-        }
-        
-        // Toggle wishlist (placeholder function)
-        function toggleWishlist(productId) {
-            // This would be implemented with your wishlist system
-            console.log('Toggling wishlist for product:', productId);
-        }
-    </script>
+            },
+            error: function() {
+                showToast('Error adding to cart', 'error');
+            }
+        });
+    }
+    
+    // Toggle wishlist (placeholder function)
+    function toggleWishlist(productId) {
+        // This would be implemented with your wishlist system
+        console.log('Toggling wishlist for product:', productId);
+    }
+</script>
 </body>
 </html>

@@ -34,7 +34,9 @@ $max_possible_price = $price_range['max'] ?? 5000;
 $products_data = getProducts($pdo, $category_filter, $price_min, $price_max, $search_query, $sort_by, $limit, $offset, $in_stock, $min_rating);
 $products = $products_data['products'];
 $total_products = $products_data['total'];
-$categories = getCategories($pdo);
+
+// Get only categories that have products (non-empty categories)
+$categories = getNonEmptyCategories($pdo, $category_filter, $price_min, $price_max, $search_query, $in_stock, $min_rating);
 
 // Calculate total pages
 $total_pages = ceil($total_products / $limit);
@@ -49,8 +51,63 @@ if (!empty($search_query)) {
     $page_title = "Search: " . htmlspecialchars($search_query) . " - HomewareOnTap";
 }
 
-?>
+// Function to get non-empty categories based on current filters
+function getNonEmptyCategories($pdo, $current_category = '', $price_min = 0, $price_max = 5000, $search_query = '', $in_stock = false, $min_rating = 0) {
+    $sql = "SELECT DISTINCT c.id, c.name, c.description, c.image 
+            FROM categories c 
+            INNER JOIN products p ON c.id = p.category_id 
+            WHERE p.status = 'active'";
+    
+    $params = [];
+    
+    // Apply the same filters as product query to determine which categories have products
+    if (!empty($search_query)) {
+        $sql .= " AND (p.name LIKE ? OR p.description LIKE ? OR p.short_description LIKE ?)";
+        $search_term = "%$search_query%";
+        $params[] = $search_term;
+        $params[] = $search_term;
+        $params[] = $search_term;
+    }
+    
+    if ($price_min > 0) {
+        $sql .= " AND p.price >= ?";
+        $params[] = $price_min;
+    }
+    
+    if ($price_max < 5000) {
+        $sql .= " AND p.price <= ?";
+        $params[] = $price_max;
+    }
+    
+    if ($in_stock) {
+        $sql .= " AND p.stock_quantity > 0";
+    }
+    
+    if ($min_rating > 0) {
+        $sql .= " AND (SELECT COALESCE(AVG(r.rating), 0) FROM reviews r WHERE r.product_id = p.id) >= ?";
+        $params[] = $min_rating;
+    }
+    
+    $sql .= " ORDER BY c.name";
+    
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Error fetching non-empty categories: " . $e->getMessage());
+        return [];
+    }
+}
 
+// Build pagination URL helper function
+function buildPaginationUrl($page) {
+    $params = $_GET;
+    $params['page'] = $page;
+    return 'shop.php?' . http_build_query($params);
+}
+
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -603,15 +660,19 @@ if (!empty($search_query)) {
                                         All Categories
                                     </label>
                                 </div>
-                                <?php foreach ($categories as $category): ?>
-                                <div class="form-check mb-2">
-                                    <input class="form-check-input" type="radio" name="category" id="category<?php echo $category['id']; ?>" value="<?php echo $category['id']; ?>" 
-                                        <?php echo ($category_filter == $category['id']) ? 'checked' : ''; ?>>
-                                    <label class="form-check-label" for="category<?php echo $category['id']; ?>">
-                                        <?php echo htmlspecialchars($category['name']); ?>
-                                    </label>
-                                </div>
-                                <?php endforeach; ?>
+                                <?php if (count($categories) > 0): ?>
+                                    <?php foreach ($categories as $category): ?>
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="radio" name="category" id="category<?php echo $category['id']; ?>" value="<?php echo $category['id']; ?>" 
+                                            <?php echo ($category_filter == $category['id']) ? 'checked' : ''; ?>>
+                                        <label class="form-check-label" for="category<?php echo $category['id']; ?>">
+                                            <?php echo htmlspecialchars($category['name']); ?>
+                                        </label>
+                                    </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <p class="text-muted small">No categories with products found.</p>
+                                <?php endif; ?>
                             </div>
                             
                             <div class="mb-4">
@@ -967,8 +1028,12 @@ if (!empty($search_query)) {
             // Initialize tooltips
             $('[data-bs-toggle="tooltip"]').tooltip();
             
+            // Auto-submit form when certain filters change for better UX
+            $('input[name="category"], input[name="in_stock"], input[name="min_rating"], select[name="sort"]').on('change', function() {
+                $('#filterForm').submit();
+            });
+            
             // Event listeners for add to cart buttons using delegation
-            // ENHANCED ADD TO CART EVENT LISTENER START
             $('#productsContainer').on('click', '.btn-add-cart', function(e) {
                 e.preventDefault();
                 const $button = $(this);
@@ -987,7 +1052,6 @@ if (!empty($search_query)) {
                 
                 addToCart(productId, 1, this);
             });
-            // ENHANCED ADD TO CART EVENT LISTENER END
 
             // Event listener for wishlist buttons (only for logged-in users)
             if (IS_LOGGED_IN) {
@@ -1188,7 +1252,6 @@ if (!empty($search_query)) {
                         const result = JSON.parse(response);
                         if (result.success) {
                             // UPDATE ALL CART COUNT ELEMENTS ON THE PAGE
-                            // Assuming .cart-count is the class for cart badge/text elements
                             $('.cart-count').text(result.cart_count); 
                             console.log('✅ Cart count updated to:', result.cart_count);
                         } else {
