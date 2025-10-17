@@ -115,81 +115,8 @@ function getRatingDistribution($pdo, $product_id) {
 // Get rating distribution
 $rating_distribution = getRatingDistribution($pdo, $product_id);
 
-// Function to get product image URL with fallback - UPDATED VERSION
-function getProductImageUrl($product) {
-    $base_url = SITE_URL;
-    $image_filename = $product['image']; // Use the full filename from the database
-    
-    if (!empty($image_filename)) {
-        // Remove file extension for matching with actual files
-        $base_name = pathinfo($image_filename, PATHINFO_FILENAME);
-        
-        // Define possible extensions to check
-        $possible_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-        
-        // Check both directories with various extensions
-        $directories = [
-            '/assets/img/products/primary/',
-            '/assets/img/products/'
-        ];
-        
-        foreach ($directories as $directory) {
-            foreach ($possible_extensions as $ext) {
-                $test_path = $directory . $base_name . $ext;
-                $full_test_path = $_SERVER['DOCUMENT_ROOT'] . $test_path;
-                
-                if (file_exists($full_test_path)) {
-                    return $base_url . $test_path;
-                }
-            }
-        }
-        
-        // Special case mappings for specific product images
-        $special_mappings = [
-            'elyra_wine_glasses' => 'elyra_wine_glasse',
-            'ribbed_champagne_flutes' => 'ribbed_champagne_fluies',
-            'ribbed_highball_glass' => 'high_ball_video',
-            'clarity_mug' => 'clarity_mug',
-            'honey_jar' => 'honey_jar',
-            'stone_milling_pot' => 'stone_milling_pot',
-            'straw_set' => 'straw_set'
-        ];
-        
-        if (isset($special_mappings[$base_name])) {
-            $mapped_name = $special_mappings[$base_name];
-            foreach ($directories as $directory) {
-                foreach ($possible_extensions as $ext) {
-                    $test_path = $directory . $mapped_name . $ext;
-                    $full_test_path = $_SERVER['DOCUMENT_ROOT'] . $test_path;
-                    
-                    if (file_exists($full_test_path)) {
-                        return $base_url . $test_path;
-                    }
-                }
-            }
-        }
-    }
-    
-    // Return default image if no product image exists or found
-    $default_paths = [
-        '/assets/img/products/primary/default_product.jpg',
-        '/assets/img/products/primary/default_product.png',
-        '/assets/img/products/default_product.jpg',
-        '/assets/img/products/default_product.png',
-        '/assets/img/products/primary/placeholder.jpg',
-        '/assets/img/products/placeholder.jpg'
-    ];
-    
-    foreach ($default_paths as $default_path) {
-        $full_default_path = $_SERVER['DOCUMENT_ROOT'] . $default_path;
-        if (file_exists($full_default_path)) {
-            return $base_url . $default_path;
-        }
-    }
-    
-    // Ultimate fallback
-    return $base_url . '/assets/img/products/primary/placeholder.jpg';
-}
+// NOTE: The getProductImageUrl function has been removed as per the update request,
+// which simplifies the image fetching logic.
 
 // Get current page URL for social sharing
 $current_url = urlencode((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]");
@@ -629,6 +556,11 @@ $is_logged_in = $sessionManager->isLoggedIn();
             margin-bottom: 12px;
         }
         
+        .product-rating {
+            display: flex;
+            align-items: center;
+        }
+        
         .product-actions {
             display: flex;
             gap: 10px;
@@ -796,11 +728,11 @@ $is_logged_in = $sessionManager->isLoggedIn();
                 <div class="col-lg-6">
                     <div class="product-gallery">
                         <div class="main-image">
-                            <img src="<?php echo getProductImageUrl($product); ?>" 
+                            <img src="<?php echo SITE_URL; ?>/assets/img/products/primary/<?php echo !empty($product['image']) ? htmlspecialchars($product['image']) : 'default-product.jpg'; ?>" 
                                  alt="<?php echo htmlspecialchars($product['name']); ?>" 
                                  id="mainProductImage"
-                                 onerror="this.onerror=null; this.src='<?php echo SITE_URL; ?>/assets/img/products/primary/default_product.jpg'">
-                        </div>
+                                 onerror="this.onerror=null; this.src='<?php echo SITE_URL; ?>/assets/img/products/primary/default-product.jpg'">
+                            </div>
                     </div>
                 </div>
                 
@@ -879,7 +811,7 @@ $is_logged_in = $sessionManager->isLoggedIn();
                                title="Share on Twitter">
                                 <i class="fab fa-twitter"></i>
                             </a>
-                            <a href="https://pinterest.com/pin/create/button/?url=<?php echo $current_url; ?>&media=<?php echo getProductImageUrl($product); ?>&description=<?php echo $share_title; ?>" 
+                            <a href="https://pinterest.com/pin/create/button/?url=<?php echo $current_url; ?>&media=<?php echo SITE_URL; ?>/assets/img/products/primary/<?php echo !empty($product['image']) ? htmlspecialchars($product['image']) : 'default-product.jpg'; ?>&description=<?php echo $share_title; ?>" 
                                target="_blank" 
                                class="share-btn pinterest me-2"
                                title="Share on Pinterest">
@@ -1032,10 +964,10 @@ $is_logged_in = $sessionManager->isLoggedIn();
                             <div class="product-card">
                                 <div class="product-image position-relative">
                                     <a href="product-detail.php?id=<?php echo $related_product['id']; ?>">
-                                        <img src="<?php echo getProductImageUrl($related_product); ?>" 
+                                        <img src="<?php echo SITE_URL; ?>/assets/img/products/primary/<?php echo !empty($related_product['image']) ? htmlspecialchars($related_product['image']) : 'default-product.jpg'; ?>" 
                                              alt="<?php echo htmlspecialchars($related_product['name']); ?>"
-                                             onerror="this.onerror=null; this.src='<?php echo SITE_URL; ?>/assets/img/products/primary/default_product.jpg'">
-                                    </a>
+                                             onerror="this.onerror=null; this.src='<?php echo SITE_URL; ?>/assets/img/products/primary/default-product.jpg'">
+                                        </a>
                                     <?php 
                                     $days_old = (time() - strtotime($related_product['created_at'])) / (60 * 60 * 24);
                                     if ($days_old < 30): ?>
