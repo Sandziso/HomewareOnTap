@@ -1,3 +1,5 @@
+[file name]: shop.php
+[file content begin]
 <?php
 // File: pages/account/shop.php
 
@@ -75,7 +77,9 @@ try {
 $products_data = getProducts($pdo, $category_filter, $price_min, $price_max, $search_query, $sort_by, $limit, $offset, $in_stock, $min_rating);
 $products = $products_data['products'];
 $total_products = $products_data['total'];
-$categories = getCategories($pdo);
+
+// Get only categories that have products (non-empty categories)
+$categories = getNonEmptyCategories($pdo, $category_filter, $price_min, $price_max, $search_query, $in_stock, $min_rating);
 
 // Calculate total pages
 $total_pages = ceil($total_products / $limit);
@@ -100,6 +104,55 @@ if ($category_filter) {
 }
 if (!empty($search_query)) {
     $pageTitle = "Search: " . htmlspecialchars($search_query) . " - HomewareOnTap";
+}
+
+// Function to get non-empty categories based on current filters
+function getNonEmptyCategories($pdo, $current_category = '', $price_min = 0, $price_max = 5000, $search_query = '', $in_stock = false, $min_rating = 0) {
+    $sql = "SELECT DISTINCT c.id, c.name, c.description, c.image 
+            FROM categories c 
+            INNER JOIN products p ON c.id = p.category_id 
+            WHERE p.status = 'active'";
+    
+    $params = [];
+    
+    // Apply the same filters as product query to determine which categories have products
+    if (!empty($search_query)) {
+        $sql .= " AND (p.name LIKE ? OR p.description LIKE ? OR p.short_description LIKE ?)";
+        $search_term = "%$search_query%";
+        $params[] = $search_term;
+        $params[] = $search_term;
+        $params[] = $search_term;
+    }
+    
+    if ($price_min > 0) {
+        $sql .= " AND p.price >= ?";
+        $params[] = $price_min;
+    }
+    
+    if ($price_max < 5000) {
+        $sql .= " AND p.price <= ?";
+        $params[] = $price_max;
+    }
+    
+    if ($in_stock) {
+        $sql .= " AND p.stock_quantity > 0";
+    }
+    
+    if ($min_rating > 0) {
+        $sql .= " AND (SELECT COALESCE(AVG(r.rating), 0) FROM reviews r WHERE r.product_id = p.id) >= ?";
+        $params[] = $min_rating;
+    }
+    
+    $sql .= " ORDER BY c.name";
+    
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Error fetching non-empty categories: " . $e->getMessage());
+        return [];
+    }
 }
 
 /**
@@ -235,7 +288,7 @@ if (!function_exists('buildPaginationUrl')) {
     }
     
     .product-image {
-        height: 200px;
+        height: 240px;
         overflow: hidden;
         position: relative;
         background: var(--light);
@@ -275,36 +328,6 @@ if (!function_exists('buildPaginationUrl')) {
     
     .product-badge.out-of-stock {
         background-color: #6c757d;
-    }
-    
-    .quick-view-btn {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        background: rgba(255, 255, 255, 0.95);
-        border: none;
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        z-index: 2;
-        color: var(--dark);
-    }
-    
-    .product-card:hover .quick-view-btn {
-        opacity: 1;
-        transform: translateY(0);
-    }
-    
-    .quick-view-btn:hover {
-        background: var(--primary);
-        color: white;
-        transform: scale(1.1);
     }
     
     .product-info {
@@ -373,16 +396,6 @@ if (!function_exists('buildPaginationUrl')) {
         background-color: var(--success) !important;
         border-color: var(--success) !important;
     }
-
-    /* Quick Actions Button Styling */
-    .quick-add, .quick-view {
-        font-size: 0.8rem;
-    }
-
-    /* Removing the old 'added' class which is replaced by .btn-success in the new JS */
-    /* .btn-add-cart.added {
-        background-color: var(--success);
-    } */ 
     
     .btn-wishlist {
         width: 44px;
@@ -509,6 +522,13 @@ if (!function_exists('buildPaginationUrl')) {
     
     .price-input {
         flex: 1;
+    }
+    
+    .price-input .input-group-text {
+        background-color: #f8f9fa;
+        border: 2px solid #e9ecef;
+        font-weight: 600;
+        color: var(--primary);
     }
     
     .price-input input {
@@ -714,19 +734,23 @@ if (!function_exists('buildPaginationUrl')) {
                                                     All Categories
                                                 </label>
                                             </div>
-                                            <?php foreach ($categories as $category): ?>
-                                            <div class="form-check mb-2">
-                                                <input class="form-check-input" type="radio" name="category" id="category<?php echo $category['id']; ?>" value="<?php echo $category['id']; ?>" 
-                                                    <?php echo ($category_filter == $category['id']) ? 'checked' : ''; ?>>
-                                                <label class="form-check-label" for="category<?php echo $category['id']; ?>">
-                                                    <?php echo htmlspecialchars($category['name']); ?>
-                                                </label>
-                                            </div>
-                                            <?php endforeach; ?>
+                                            <?php if (count($categories) > 0): ?>
+                                                <?php foreach ($categories as $category): ?>
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="radio" name="category" id="category<?php echo $category['id']; ?>" value="<?php echo $category['id']; ?>" 
+                                                        <?php echo ($category_filter == $category['id']) ? 'checked' : ''; ?>>
+                                                    <label class="form-check-label" for="category<?php echo $category['id']; ?>">
+                                                        <?php echo htmlspecialchars($category['name']); ?>
+                                                    </label>
+                                                </div>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <p class="text-muted small">No categories with products found.</p>
+                                            <?php endif; ?>
                                         </div>
                                         
                                         <div class="mb-4">
-                                            <h5><i class="fas fa-dollar-sign me-2"></i>Price Range</h5>
+                                            <h5><i class="fas fa-money-bill me-2"></i>Price Range (R)</h5>
                                             <div class="price-slider-container">
                                                 <div class="price-slider-track"></div>
                                                 <div class="price-slider-range" id="price-slider-range"></div>
@@ -738,15 +762,21 @@ if (!function_exists('buildPaginationUrl')) {
                                             <div class="price-inputs">
                                                 <div class="price-input">
                                                     <label for="min-price" class="form-label small fw-semibold">Min Price</label>
-                                                    <input type="number" id="min-price" name="min_price" 
-                                                           min="<?php echo $min_possible_price; ?>" max="<?php echo $max_possible_price; ?>" 
-                                                           value="<?php echo $price_min; ?>" class="form-control">
+                                                    <div class="input-group">
+                                                        <span class="input-group-text">R</span>
+                                                        <input type="number" id="min-price" name="min_price" 
+                                                               min="<?php echo $min_possible_price; ?>" max="<?php echo $max_possible_price; ?>" 
+                                                               value="<?php echo $price_min; ?>" class="form-control">
+                                                    </div>
                                                 </div>
                                                 <div class="price-input">
                                                     <label for="max-price" class="form-label small fw-semibold">Max Price</label>
-                                                    <input type="number" id="max-price" name="max_price" 
-                                                           min="<?php echo $min_possible_price; ?>" max="<?php echo $max_possible_price; ?>" 
-                                                           value="<?php echo $price_max; ?>" class="form-control">
+                                                    <div class="input-group">
+                                                        <span class="input-group-text">R</span>
+                                                        <input type="number" id="max-price" name="max_price" 
+                                                               min="<?php echo $min_possible_price; ?>" max="<?php echo $max_possible_price; ?>" 
+                                                               value="<?php echo $price_max; ?>" class="form-control">
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -821,11 +851,11 @@ if (!function_exists('buildPaginationUrl')) {
                                 </p>
                                 
                                 <div class="d-flex align-items-center">
-                                    <button type="button" class="btn btn-outline-primary position-relative me-3" data-bs-toggle="offcanvas" data-bs-target="#cartOffcanvas" title="View Cart">
+                                    <button type="button" class="btn btn-outline-primary position-relative me-3 cart-icon-btn" data-bs-toggle="offcanvas" data-bs-target="#cartOffcanvas" title="View Cart">
                                         <i class="fas fa-shopping-cart me-2"></i> Cart
                                         <span class="cart-count-badge">0</span>
                                     </button>
-                                    <button type="button" class="btn btn-outline-danger position-relative me-3" data-bs-toggle="offcanvas" data-bs-target="#wishlistOffcanvas" title="View Wishlist">
+                                    <button type="button" class="btn btn-outline-danger position-relative me-3 wishlist-icon-btn" data-bs-toggle="offcanvas" data-bs-target="#wishlistOffcanvas" title="View Wishlist">
                                         <i class="fas fa-heart me-2"></i> Wishlist
                                         <span class="wishlist-count-badge">0</span>
                                     </button>
@@ -839,15 +869,17 @@ if (!function_exists('buildPaginationUrl')) {
                                 <?php if (count($products) > 0): ?>
                                     <?php foreach ($products as $product): 
                                         $isInWishlist = in_array($product['id'], $user_wishlist);
+                                        // Get product rating and review count
+                                        $product_rating = getProductRating($pdo, $product['id']);
+                                        $review_count = getReviewCount($pdo, $product['id']);
                                     ?>
                                     <div class="col-md-6 col-xl-4 mb-4">
                                         <div class="product-card">
                                             <div class="product-image position-relative">
-                                                <a href="<?php echo SITE_URL; ?>/pages/product-detail.php?id=<?php echo $product['id']; ?>">
-                                                    <img class="lazy-image" 
-                                                         data-src="<?php echo SITE_URL; ?>/assets/img/products/primary/<?php echo !empty($product['image']) ? htmlspecialchars($product['image']) : 'default-product.jpg'; ?>" 
-                                                         src="<?php echo SITE_URL; ?>/assets/img/products/primary/placeholder.jpg"
+                                                <a href="product-detail.php?id=<?php echo $product['id']; ?>">
+                                                    <img src="<?php echo SITE_URL; ?>/assets/img/products/primary/<?php echo !empty($product['image']) ? htmlspecialchars($product['image']) : 'default-product.jpg'; ?>" 
                                                          alt="<?php echo htmlspecialchars($product['name']); ?>"
+                                                         style="width: 100%; height: 100%; object-fit: cover;"
                                                          onerror="this.onerror=null; this.src='<?php echo SITE_URL; ?>/assets/img/products/primary/default-product.jpg'">
                                                 </a>
                                                 
@@ -862,14 +894,10 @@ if (!function_exists('buildPaginationUrl')) {
                                                 if ($days_old < 30): ?>
                                                 <span class="product-badge new">New</span>
                                                 <?php endif; ?>
-                                                
-                                                <button class="quick-view-btn quick-view" data-product-id="<?php echo $product['id']; ?>" title="Quick View">
-                                                    <i class="fas fa-eye"></i>
-                                                </button>
                                             </div>
                                             <div class="product-info">
                                                 <h3 class="product-title">
-                                                    <a href="<?php echo SITE_URL; ?>/pages/product-detail.php?id=<?php echo $product['id']; ?>" class="text-decoration-none text-dark">
+                                                    <a href="product-detail.php?id=<?php echo $product['id']; ?>" class="text-decoration-none text-dark">
                                                         <?php echo htmlspecialchars($product['name']); ?>
                                                     </a>
                                                 </h3>
@@ -877,23 +905,8 @@ if (!function_exists('buildPaginationUrl')) {
                                                     R<?php echo number_format($product['price'], 2); ?>
                                                 </div>
                                                 <div class="product-rating mb-2">
-                                                    <?php echo generateStarRating(getProductRating($pdo, $product['id'])); ?>
-                                                    <span class="ms-1 text-muted small">(<?php echo getReviewCount($pdo, $product['id']); ?>)</span>
-                                                </div>
-                                                
-                                                <div class="d-flex justify-content-end mb-3">
-                                                    <button class="btn btn-sm btn-outline-primary quick-add me-2" 
-                                                            data-product-id="<?php echo $product['id']; ?>"
-                                                            data-stock="<?php echo $product['stock_quantity']; ?>"
-                                                            <?php echo $product['stock_quantity'] == 0 ? 'disabled' : ''; ?>
-                                                            title="Quick Add to Cart">
-                                                        <i class="fas fa-cart-plus"></i> Quick Add
-                                                    </button>
-                                                    <button class="btn btn-sm btn-outline-secondary quick-view" 
-                                                            data-product-id="<?php echo $product['id']; ?>"
-                                                            title="Quick View">
-                                                        <i class="fas fa-eye"></i> Quick View
-                                                    </button>
+                                                    <?php echo generateStarRating($product_rating); ?>
+                                                    <span class="ms-1 text-muted small">(<?php echo $review_count; ?>)</span>
                                                 </div>
                                                 
                                                 <div class="product-actions">
@@ -1035,8 +1048,8 @@ if (!function_exists('buildPaginationUrl')) {
             // Initialize wishlist count
             updateWishlistCount();
             
-            // Initialize lazy loading for images
-            initLazyLoading();
+            // Initialize image loading
+            initImageLoading();
             
             // Dual range slider functionality
             const minSlider = document.getElementById('min-slider');
@@ -1128,19 +1141,12 @@ if (!function_exists('buildPaginationUrl')) {
                 document.dispatchEvent(new Event('toggleSidebar'));
             });
 
-            // Event listeners for quick actions and add to cart buttons using delegation
-            $('#productsContainer').on('click', '.quick-add, .btn-add-cart', function(e) {
+            // Event listeners for add to cart buttons using delegation
+            $('#productsContainer').on('click', '.btn-add-cart', function(e) {
                 e.preventDefault();
                 const productId = $(this).data('product-id');
                 const element = this;
-                // Calls the updated addToCart function
-                addToCart(productId, 1, element); 
-            });
-
-            $('#productsContainer').on('click', '.quick-view-btn, .quick-view', function(e) {
-                e.preventDefault();
-                const productId = $(this).data('product-id');
-                showQuickView(productId);
+                addToCart(productId, 1, element);
             });
 
             // Event listener for wishlist buttons
@@ -1150,40 +1156,33 @@ if (!function_exists('buildPaginationUrl')) {
                 const element = this;
                 toggleWishlist(productId, element);
             });
+
+            // Auto-submit form when certain filters change for better UX
+            $('input[name="category"], input[name="in_stock"], input[name="min_rating"], select[name="sort"]').on('change', function() {
+                $('#filterForm').submit();
+            });
         });
         
-        // Quick view function (now linked to product detail page)
-        function showQuickView(productId) {
-            window.location.href = '<?php echo SITE_URL; ?>/pages/product-detail.php?id=' + productId;
-        }
-
-        // --- NEW Performance Optimization JS: Lazy loading for product images ---
-        function initLazyLoading() {
-            // Select images with the data-src attribute
-            const lazyImages = document.querySelectorAll('img[data-src]');
+        // Image loading function
+        function initImageLoading() {
+            console.log('Loading product images...');
+            const productImages = document.querySelectorAll('.product-image img');
             
-            if ('IntersectionObserver' in window) {
-                const imageObserver = new IntersectionObserver((entries, observer) => {
-                    entries.forEach(entry => {
-                        if (entry.isIntersecting) {
-                            const img = entry.target;
-                            img.src = img.dataset.src;
-                            img.removeAttribute('data-src');
-                            observer.unobserve(img);
-                        }
-                    });
-                });
+            productImages.forEach(img => {
+                const currentSrc = img.src;
+                console.log('Loading image:', currentSrc);
                 
-                lazyImages.forEach(img => imageObserver.observe(img));
-            } else {
-                // Fallback for browsers that do not support IntersectionObserver
-                lazyImages.forEach(img => {
-                    img.src = img.dataset.src;
-                    img.removeAttribute('data-src');
-                });
-            }
+                // Force reload and handle errors
+                img.onload = function() {
+                    console.log('✅ Image loaded successfully:', currentSrc);
+                };
+                
+                img.onerror = function() {
+                    console.error('❌ Failed to load image:', currentSrc);
+                    this.src = '<?php echo SITE_URL; ?>/assets/img/products/primary/default-product.jpg';
+                };
+            });
         }
-        // --- End NEW Performance Optimization JS ---
         
         // Enhanced addToCart function with better CSRF handling
         async function addToCart(productId, quantity, element) {
@@ -1243,17 +1242,14 @@ if (!function_exists('buildPaginationUrl')) {
                     updateCartCount();
                     showToast('Product added to cart!', 'success');
                     
+                    // Animate cart icon
+                    animateCartIcon();
+                    
                     // Revert after 2 seconds
                     setTimeout(() => {
                         element.innerHTML = originalText;
                         $(element).removeClass('btn-success');
-                        
-                        // Restore original button class based on quick add or main button
-                        if ($(element).hasClass('quick-add')) {
-                            $(element).addClass('btn-outline-primary');
-                        } else {
-                            $(element).addClass('btn-primary');
-                        }
+                        $(element).addClass('btn-primary');
                         element.disabled = false;
                     }, 2000);
                     
@@ -1266,12 +1262,7 @@ if (!function_exists('buildPaginationUrl')) {
                 // Restore original state and show error
                 element.innerHTML = originalText;
                 element.disabled = false;
-                
-                if ($(element).hasClass('quick-add')) {
-                    $(element).addClass('btn-outline-primary');
-                } else {
-                    $(element).addClass('btn-primary');
-                }
+                $(element).addClass('btn-primary');
                 
                 console.error('Add to cart error:', error);
                 showToast(error.message || 'Network error. Please try again.', 'error');
@@ -1328,6 +1319,9 @@ if (!function_exists('buildPaginationUrl')) {
                         heartIcon.removeClass('fa-spinner fa-spin').addClass('fas fa-heart');
                         $(element).addClass('active');
                         showToast('Added to wishlist!', 'success');
+                        
+                        // Animate wishlist icon
+                        animateWishlistIcon();
                     } else {
                         heartIcon.removeClass('fa-spinner fa-spin').addClass('far fa-heart');
                         $(element).removeClass('active');
@@ -1399,6 +1393,26 @@ if (!function_exists('buildPaginationUrl')) {
                     console.error('Error updating wishlist count:', error);
                 }
             });
+        }
+        
+        // Animate cart icon when item is added
+        function animateCartIcon() {
+            const cartIcon = $('.cart-icon-btn');
+            cartIcon.addClass('animate-pulse');
+            
+            setTimeout(() => {
+                cartIcon.removeClass('animate-pulse');
+            }, 1000);
+        }
+        
+        // Animate wishlist icon when item is added
+        function animateWishlistIcon() {
+            const wishlistIcon = $('.wishlist-icon-btn');
+            wishlistIcon.addClass('animate-pulse');
+            
+            setTimeout(() => {
+                wishlistIcon.removeClass('animate-pulse');
+            }, 1000);
         }
         
         // Load cart items
@@ -1665,5 +1679,42 @@ if (!function_exists('buildPaginationUrl')) {
             });
         }
     </script>
+
+    <style>
+        /* Animation for cart and wishlist icons */
+        .animate-pulse {
+            animation: pulse 0.5s ease-in-out;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        /* Responsive icon styles */
+        .cart-icon-btn, .wishlist-icon-btn {
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .cart-icon-btn:hover, .wishlist-icon-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        /* Mobile responsive adjustments */
+        @media (max-width: 768px) {
+            .cart-icon-btn, .wishlist-icon-btn {
+                padding: 8px 12px;
+                font-size: 0.875rem;
+            }
+            
+            .cart-count-badge, .wishlist-count-badge {
+                width: 18px;
+                height: 18px;
+                font-size: 0.7rem;
+            }
+        }
+    </style>
 </body>
 </html>

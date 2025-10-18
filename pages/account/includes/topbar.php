@@ -56,7 +56,7 @@ if (isset($user) && isset($user['id'])) {
 
         <div class="nav-right">
             <div class="nav-actions">
-                <a href="<?php echo SITE_URL; ?>/pages/shop.php" class="nav-action-btn" title="Continue Shopping">
+                <a href="<?php echo SITE_URL; ?>/pages/account/shop.php" class="nav-action-btn" title="Continue Shopping">
                     <i class="fas fa-store"></i>
                     <span class="action-text">Shop</span>
                 </a>

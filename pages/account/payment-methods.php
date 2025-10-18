@@ -48,80 +48,131 @@ $errors = [];
 $success = false;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    
-    switch ($action) {
-        case 'add_payment_method':
-            $cardNumber = $_POST['card_number'] ?? '';
-            $expiryMonth = $_POST['expiry_month'] ?? '';
-            $expiryYear = $_POST['expiry_year'] ?? '';
-            $cvv = $_POST['cvv'] ?? '';
-            $cardHolder = $_POST['card_holder'] ?? '';
-            $isDefault = isset($_POST['is_default']) ? 1 : 0;
-            
-            // Validate required fields
-            if (empty($cardNumber) || empty($expiryMonth) || empty($expiryYear) || empty($cvv) || empty($cardHolder)) {
-                $errors[] = "Please fill in all required fields.";
-            }
-            
-            // Validate card number
-            if (!empty($cardNumber) && !validateCardNumber($cardNumber)) {
-                $errors[] = "Please enter a valid card number.";
-            }
-            
-            // Validate expiry date
-            if (!empty($expiryMonth) && !empty($expiryYear) && !validateExpiryDate($expiryMonth, $expiryYear)) {
-                $errors[] = "Please check the card expiry date.";
-            }
-            
-            // Validate CVV
-            if (!empty($cvv) && (!is_numeric($cvv) || strlen($cvv) < 3 || strlen($cvv) > 4)) {
-                $errors[] = "Please enter a valid CVV (3-4 digits).";
-            }
-
-            if (empty($errors)) {
-                // Mask card number for storage
-                $maskedCardNumber = maskCardNumber($cardNumber);
-                $cardType = detectCardType($cardNumber);
+    // CSRF protection
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        $errors[] = "Security validation failed. Please try again.";
+    } else {
+        $action = $_POST['action'] ?? '';
+        
+        switch ($action) {
+            case 'add_payment_method':
+                $cardNumber = preg_replace('/\s+/', '', $_POST['card_number'] ?? '');
+                $expiryMonth = $_POST['expiry_month'] ?? '';
+                $expiryYear = $_POST['expiry_year'] ?? '';
+                $cvv = $_POST['cvv'] ?? '';
+                $cardHolder = trim($_POST['card_holder'] ?? '');
+                $isDefault = isset($_POST['is_default']) ? 1 : 0;
                 
-                if (addUserPaymentMethod($pdo, $userId, $cardType, $maskedCardNumber, $cardHolder, $expiryMonth, $expiryYear, $isDefault)) {
-                    $success = "Payment method added successfully!";
-                    // Refresh payment methods
-                    $paymentMethods = getUserPaymentMethods($pdo, $userId);
+                // Validate required fields
+                if (empty($cardNumber) || empty($expiryMonth) || empty($expiryYear) || empty($cvv) || empty($cardHolder)) {
+                    $errors[] = "Please fill in all required fields.";
+                }
+                
+                // Validate card holder name
+                if (!empty($cardHolder) && (strlen($cardHolder) < 2 || strlen($cardHolder) > 100)) {
+                    $errors[] = "Card holder name must be between 2 and 100 characters.";
+                }
+                
+                // Validate card number
+                if (!empty($cardNumber) && !validateCardNumber($cardNumber)) {
+                    $errors[] = "Please enter a valid card number.";
+                }
+                
+                // Validate expiry date
+                if (!empty($expiryMonth) && !empty($expiryYear) && !validateExpiryDate($expiryMonth, $expiryYear)) {
+                    $errors[] = "Please check the card expiry date.";
+                }
+                
+                // Validate CVV
+                if (!empty($cvv) && (!is_numeric($cvv) || strlen($cvv) < 3 || strlen($cvv) > 4)) {
+                    $errors[] = "Please enter a valid CVV (3-4 digits).";
+                }
+
+                // Check if payment method already exists
+                if (empty($errors)) {
+                    $existingMethods = getUserPaymentMethods($pdo, $userId);
+                    $maskedNewCard = maskCardNumber($cardNumber);
+                    foreach ($existingMethods as $existingMethod) {
+                        if ($existingMethod['masked_card_number'] === $maskedNewCard) {
+                            $errors[] = "This card is already saved in your payment methods.";
+                            break;
+                        }
+                    }
+                }
+
+                if (empty($errors)) {
+                    // Mask card number for storage
+                    $maskedCardNumber = maskCardNumber($cardNumber);
+                    $cardType = detectCardType($cardNumber);
                     
-                    // Clear form
-                    $_POST = [];
-                } else {
-                    $errors[] = "Failed to add payment method. Please try again.";
+                    if (addUserPaymentMethod($pdo, $userId, $cardType, $maskedCardNumber, $cardHolder, $expiryMonth, $expiryYear, $isDefault)) {
+                        $success = "Payment method added successfully!";
+                        // Refresh payment methods
+                        $paymentMethods = getUserPaymentMethods($pdo, $userId);
+                        
+                        // Clear form
+                        $_POST = [];
+                    } else {
+                        $errors[] = "Failed to add payment method. Please try again.";
+                    }
                 }
-            }
-            break;
-            
-        case 'set_default':
-            $paymentMethodId = $_POST['payment_method_id'] ?? 0;
-            if ($paymentMethodId) {
-                if (setDefaultPaymentMethod($pdo, $paymentMethodId, $userId)) {
-                    $success = "Default payment method updated!";
-                    $paymentMethods = getUserPaymentMethods($pdo, $userId);
+                break;
+                
+            case 'set_default':
+                $paymentMethodId = filter_var($_POST['payment_method_id'] ?? 0, FILTER_VALIDATE_INT);
+                if ($paymentMethodId && $paymentMethodId > 0) {
+                    // Verify the payment method belongs to the user
+                    $userPaymentMethods = array_column($paymentMethods, 'id');
+                    if (in_array($paymentMethodId, $userPaymentMethods)) {
+                        if (setDefaultPaymentMethod($pdo, $paymentMethodId, $userId)) {
+                            $success = "Default payment method updated!";
+                            $paymentMethods = getUserPaymentMethods($pdo, $userId);
+                        } else {
+                            $errors[] = "Failed to update default payment method.";
+                        }
+                    } else {
+                        $errors[] = "Invalid payment method.";
+                    }
                 } else {
-                    $errors[] = "Failed to update default payment method.";
+                    $errors[] = "Invalid payment method ID.";
                 }
-            }
-            break;
-            
-        case 'delete_payment_method':
-            $paymentMethodId = $_POST['payment_method_id'] ?? 0;
-            if ($paymentMethodId) {
-                if (deletePaymentMethod($pdo, $paymentMethodId, $userId)) {
-                    $success = "Payment method deleted successfully!";
-                    $paymentMethods = getUserPaymentMethods($pdo, $userId);
+                break;
+                
+            case 'delete_payment_method':
+                $paymentMethodId = filter_var($_POST['payment_method_id'] ?? 0, FILTER_VALIDATE_INT);
+                if ($paymentMethodId && $paymentMethodId > 0) {
+                    // Verify the payment method belongs to the user
+                    $userPaymentMethods = array_column($paymentMethods, 'id');
+                    if (in_array($paymentMethodId, $userPaymentMethods)) {
+                        // Prevent deletion if it's the only payment method
+                        if (count($paymentMethods) <= 1) {
+                            $errors[] = "You cannot delete your only payment method. Please add another payment method first.";
+                        } else {
+                            if (deletePaymentMethod($pdo, $paymentMethodId, $userId)) {
+                                $success = "Payment method deleted successfully!";
+                                $paymentMethods = getUserPaymentMethods($pdo, $userId);
+                            } else {
+                                $errors[] = "Failed to delete payment method.";
+                            }
+                        }
+                    } else {
+                        $errors[] = "Invalid payment method.";
+                    }
                 } else {
-                    $errors[] = "Failed to delete payment method.";
+                    $errors[] = "Invalid payment method ID.";
                 }
-            }
-            break;
+                break;
+                
+            default:
+                $errors[] = "Invalid action.";
+                break;
+        }
     }
 }
+
+// Generate CSRF token for form protection
+$csrfToken = bin2hex(random_bytes(32));
+$_SESSION['csrf_token'] = $csrfToken;
 
 // Get recent orders for topbar notifications
 try {
@@ -142,7 +193,7 @@ $pageTitle = "Payment Methods - HomewareOnTap";
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title><?php echo $pageTitle; ?></title>
+    <title><?php echo htmlspecialchars($pageTitle); ?></title>
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -187,9 +238,10 @@ $pageTitle = "Payment Methods - HomewareOnTap";
     }
 
     .content-area {
-        padding: 1.5rem;
-        max-width: 1400px;
+        padding: 2rem;
+        max-width: 1200px;
         margin: 0 auto;
+        width: 100%;
     }
 
     /* Card styles */
@@ -233,43 +285,26 @@ $pageTitle = "Payment Methods - HomewareOnTap";
         border-color: #8B6145; 
     } 
 
-    /* Page Header */
-    .page-header {
-        margin-bottom: 2rem;
-    }
-    
-    .page-header h1 {
-        color: var(--dark);
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-        font-size: 1.8rem;
-    }
-    
-    .page-header p {
-        color: var(--dark);
-        opacity: 0.7;
-        margin: 0;
-        font-size: 1rem;
-    }
-
-    /* Payment Method Cards */
+    /* Payment Method Card Styles */
     .payment-method-card {
-        border: 1px solid #ddd;
-        border-radius: 8px;
+        border: 1px solid #eee;
+        border-radius: 12px;
         padding: 1.5rem;
         margin-bottom: 1.5rem;
+        position: relative;
+        transition: all 0.3s;
         background: white;
-        transition: all 0.3s ease;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     }
     
     .payment-method-card:hover {
         border-color: var(--primary);
-        box-shadow: 0 4px 10px rgba(166, 123, 91, 0.1);
+        box-shadow: 0 4px 15px rgba(166, 123, 91, 0.1);
     }
     
     .payment-method-card.default {
         border-color: var(--primary);
-        background: rgba(166, 123, 91, 0.05);
+        background: var(--light);
     }
     
     .payment-method-header {
@@ -277,20 +312,27 @@ $pageTitle = "Payment Methods - HomewareOnTap";
         justify-content: space-between;
         align-items: flex-start;
         margin-bottom: 1rem;
-        gap: 1rem;
     }
     
     .payment-method-type {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        flex: 1;
+        gap: 1rem;
     }
     
     .payment-icon {
-        font-size: 1.5rem;
-        color: var(--primary);
-        flex-shrink: 0;
+        font-size: 2.5rem;
+        color: var(--dark);
+    }
+    
+    .payment-method-type h5 {
+        margin: 0;
+        color: var(--dark);
+    }
+    
+    .payment-method-actions {
+        display: flex;
+        gap: 0.5rem;
     }
     
     .default-badge {
@@ -300,13 +342,6 @@ $pageTitle = "Payment Methods - HomewareOnTap";
         border-radius: 20px;
         font-size: 0.75rem;
         font-weight: 600;
-        white-space: nowrap;
-    }
-    
-    .payment-method-actions {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
     }
     
     .payment-method-details {
@@ -321,144 +356,229 @@ $pageTitle = "Payment Methods - HomewareOnTap";
     }
     
     .detail-label {
-        font-size: 0.875rem;
-        color: #666;
+        font-size: 0.75rem;
+        color: #6c757d;
+        font-weight: 500;
         margin-bottom: 0.25rem;
     }
     
     .detail-value {
+        font-size: 1rem;
+        color: var(--dark);
         font-weight: 500;
-        color: var(--dark);
     }
-
+    
     /* Form Styles */
-    .form-section {
-        background: white;
-        border-radius: 8px;
-        padding: 1.5rem;
-        margin-bottom: 2rem;
-        border: 1px solid #ddd;
-    }
-    
-    .section-title {
-        color: var(--dark);
-        font-weight: 600;
-        margin-bottom: 1.5rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 2px solid var(--secondary);
-    }
-    
-    .card-input-wrapper {
-        position: relative;
-    }
-    
-    .card-input-wrapper .form-control {
-        padding-left: 3rem;
-    }
-    
-    .card-icon {
-        position: absolute;
-        left: 1rem;
-        top: 50%;
-        transform: translateY(-50%);
-        color: #666;
-        z-index: 1;
-    }
-    
     .card-preview {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 8px;
+        background: linear-gradient(135deg, #3a3229 0%, #5c4a3a 100%);
+        border-radius: 12px;
         padding: 1.5rem;
+        color: white;
         margin-bottom: 1.5rem;
         position: relative;
         overflow: hidden;
-    }
-    
-    .card-preview::before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        right: -50%;
-        width: 200px;
-        height: 200px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 50%;
+        min-height: 180px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
     }
     
     .card-chip {
-        width: 40px;
-        height: 30px;
-        background: linear-gradient(135deg, #ffd700, #ffed4e);
+        width: 50px;
+        height: 40px;
+        background: linear-gradient(135deg, #d4af37 0%, #f9f295 100%);
+        border-radius: 8px;
+        position: relative;
+    }
+    
+    .card-chip:after {
+        content: "";
+        position: absolute;
+        top: 5px;
+        left: 5px;
+        right: 5px;
+        bottom: 5px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
         border-radius: 4px;
-        margin-bottom: 1rem;
     }
     
     .card-number {
-        font-size: 1.1rem;
-        letter-spacing: 1.5px;
-        margin-bottom: 1rem;
-        font-family: monospace;
-        word-break: break-all;
+        font-size: 1.5rem;
+        letter-spacing: 2px;
+        font-family: 'Courier New', monospace;
+        font-weight: 600;
+        margin: 1rem 0;
     }
     
     .card-details {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        flex-wrap: wrap;
+    }
+    
+    .card-holder, .card-expiry {
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+    
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: var(--dark);
+    }
+    
+    .form-control {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        font-size: 1rem;
+        transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    
+    .form-control:focus {
+        border-color: var(--primary);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(166, 123, 91, 0.1);
+    }
+    
+    .card-input-wrapper {
+        position: relative;
+    }
+    
+    .card-icon {
+        position: absolute;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 1.5rem;
+        color: var(--dark);
+    }
+
+    .cvv-input-wrapper { /* New style for CVV to include eye icon */
+        position: relative;
+    }
+
+    .cvv-toggle-icon {
+        position: absolute;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        cursor: pointer;
+        color: #6c757d;
+        padding: 0.25rem;
+    }
+    
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr;
         gap: 1rem;
     }
     
-    .card-holder {
-        font-size: 0.9rem;
-        flex: 1;
-        min-width: 120px;
+    @media (min-width: 768px) {
+        .form-row {
+            grid-template-columns: 1fr 1fr;
+        }
     }
     
-    .card-expiry {
-        font-size: 0.9rem;
-        white-space: nowrap;
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+    
+    .checkbox-group input {
+        margin-right: 10px;
     }
 
+    /* Alert Styles */
+    .alert {
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        border: 1px solid transparent;
+    }
+    
+    .alert-danger {
+        background: #ffebee;
+        color: #c62828;
+        border-color: #ef9a9a;
+    }
+    
+    .alert-success {
+        background: #e8f5e9;
+        color: #2e7d32;
+        border-color: #a5d6a7;
+    }
+
+    /* Page Header */
+    .page-header {
+        margin-bottom: 2rem;
+    }
+    
+    .page-header h1 {
+        color: var(--dark);
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+    }
+    
+    .page-header p {
+        color: var(--dark);
+        opacity: 0.7;
+        margin: 0;
+    }
+    
     /* Empty State */
     .empty-state {
         text-align: center;
         padding: 3rem 2rem;
-        color: #666;
     }
     
     .empty-state-icon {
         font-size: 4rem;
-        color: #ddd;
+        color: var(--secondary);
+        margin-bottom: 1.5rem;
+    }
+    
+    .empty-state h4 {
+        color: var(--dark);
         margin-bottom: 1rem;
     }
-
-    /* Toast positioning */
+    
+    .empty-state p {
+        color: var(--dark);
+        opacity: 0.7;
+        margin-bottom: 2rem;
+    }
+    
+    /* Toast Container */
     .toast-container {
         z-index: 1090;
     }
-
-    /* Alert styles */
-    .alert {
-        border-radius: 8px;
-        border: none;
-        padding: 1rem 1.5rem;
+    
+    /* Form Text */
+    .form-text {
+        font-size: 0.875rem;
+        color: #6c757d;
+        margin-top: 0.25rem;
     }
-
-    /* Responsive adjustments */
+    
+    /* Responsive Adjustments */
     @media (max-width: 768px) {
-        .content-area {
-            padding: 1rem;
-        }
-        
         .payment-method-header {
             flex-direction: column;
             align-items: flex-start;
-            gap: 1rem;
         }
         
         .payment-method-actions {
+            margin-top: 1rem;
             width: 100%;
             justify-content: flex-start;
         }
@@ -467,35 +587,84 @@ $pageTitle = "Payment Methods - HomewareOnTap";
             grid-template-columns: 1fr;
         }
         
+        .card-preview {
+            min-height: 160px;
+            padding: 1rem;
+        }
+        
+        .card-number {
+            font-size: 1.25rem;
+        }
+    }
+    
+    /* Enhanced Mobile Responsiveness */
+    @media (max-width: 576px) {
+        .payment-method-actions.mobile-actions {
+            flex-direction: column;
+            gap: 0.5rem;
+            width: 100%;
+        }
+        
+        .payment-method-actions.mobile-actions .btn {
+            width: 100%;
+            justify-content: center;
+        }
+        
+        .card-preview {
+            min-height: 140px;
+            padding: 1rem;
+        }
+        
+        .card-number {
+            font-size: 1.1rem;
+        }
+        
         .card-details {
             flex-direction: column;
             align-items: flex-start;
             gap: 0.5rem;
         }
         
-        .page-header h1 {
-            font-size: 1.5rem;
+        .content-area {
+            padding: 1rem;
         }
     }
 
-    @media (max-width: 576px) {
-        .card-dashboard .card-body {
-            padding: 1rem;
-        }
-        
-        .payment-method-card {
-            padding: 1rem;
-        }
-        
-        .payment-method-actions {
-            flex-direction: column;
-            width: 100%;
-        }
-        
-        .payment-method-actions .btn {
-            width: 100%;
-            margin-bottom: 0.5rem;
-        }
+    /* South African Payment Badges */
+    .badge {
+        font-size: 0.7rem;
+        padding: 0.4em 0.6em;
+    }
+
+    /* Enhanced Form Accessibility */
+    .form-control:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 0.2rem rgba(166, 123, 91, 0.25);
+    }
+
+    /* Loading States */
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    /* Success States */
+    .payment-method-card.added {
+        border-color: var(--success);
+        background-color: rgba(28, 200, 138, 0.05);
+    }
+
+    /* Error States */
+    .is-invalid {
+        border-color: var(--danger) !important;
+    }
+
+    .invalid-feedback {
+        display: block;
+        width: 100%;
+        margin-top: 0.25rem;
+        font-size: 0.875em;
+        color: var(--danger);
     }
     </style>
 </head>
@@ -508,7 +677,6 @@ $pageTitle = "Payment Methods - HomewareOnTap";
             <?php require_once 'includes/topbar.php'; ?>
 
             <main class="content-area">
-                <!-- Toast Container -->
                 <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1090;"></div>
 
                 <div class="container-fluid">
@@ -537,7 +705,6 @@ $pageTitle = "Payment Methods - HomewareOnTap";
 
                     <div class="row">
                         <div class="col-lg-8">
-                            <!-- Saved Payment Methods -->
                             <div class="card-dashboard mb-4">
                                 <div class="card-header">
                                     <i class="fas fa-credit-card me-2"></i> Saved Payment Methods
@@ -568,6 +735,7 @@ $pageTitle = "Payment Methods - HomewareOnTap";
                                                     <span class="default-badge">Default</span>
                                                     <?php else: ?>
                                                     <form method="POST" class="d-inline">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                                                         <input type="hidden" name="action" value="set_default">
                                                         <input type="hidden" name="payment_method_id" value="<?php echo $method['id']; ?>">
                                                         <button type="submit" class="btn btn-outline-primary btn-sm">
@@ -576,9 +744,10 @@ $pageTitle = "Payment Methods - HomewareOnTap";
                                                     </form>
                                                     <?php endif; ?>
                                                     <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this payment method?');">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                                                         <input type="hidden" name="action" value="delete_payment_method">
                                                         <input type="hidden" name="payment_method_id" value="<?php echo $method['id']; ?>">
-                                                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                                                        <button type="submit" class="btn btn-outline-danger btn-sm" <?php echo (count($paymentMethods) <= 1) ? 'disabled title="Cannot delete your only payment method"' : ''; ?>>
                                                             <i class="fas fa-trash me-1"></i>Delete
                                                         </button>
                                                     </form>
@@ -606,13 +775,13 @@ $pageTitle = "Payment Methods - HomewareOnTap";
                         </div>
                         
                         <div class="col-lg-4">
-                            <!-- Add New Payment Method -->
                             <div class="card-dashboard">
                                 <div class="card-header">
                                     <i class="fas fa-plus-circle me-2"></i> Add New Payment Method
                                 </div>
                                 <div class="card-body">
                                     <form method="POST" id="addPaymentMethodForm">
+                                        <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                                         <input type="hidden" name="action" value="add_payment_method">
                                         
                                         <div class="card-preview">
@@ -627,7 +796,7 @@ $pageTitle = "Payment Methods - HomewareOnTap";
                                         <div class="mb-3">
                                             <label for="card_holder" class="form-label">Card Holder Name <span class="text-danger">*</span></label>
                                             <input type="text" class="form-control" id="card_holder" name="card_holder" 
-                                                   placeholder="John Doe" required 
+                                                   placeholder="John Doe" required maxlength="100"
                                                    value="<?php echo htmlspecialchars($_POST['card_holder'] ?? ''); ?>"
                                                    oninput="updateCardPreview()">
                                         </div>
@@ -653,7 +822,7 @@ $pageTitle = "Payment Methods - HomewareOnTap";
                                                     <?php for ($i = 1; $i <= 12; $i++): ?>
                                                     <option value="<?php echo sprintf('%02d', $i); ?>" 
                                                         <?php echo (($_POST['expiry_month'] ?? '') == sprintf('%02d', $i)) ? 'selected' : ''; ?>>
-                                                        <?php echo sprintf('%02d', $i); ?>
+                                                        <?php echo sprintf('%02d', $i); ?> - <?php echo date('F', mktime(0, 0, 0, $i, 1)); ?>
                                                     </option>
                                                     <?php endfor; ?>
                                                 </select>
@@ -662,7 +831,7 @@ $pageTitle = "Payment Methods - HomewareOnTap";
                                                 <label for="expiry_year" class="form-label">Expiry Year <span class="text-danger">*</span></label>
                                                 <select class="form-select" id="expiry_year" name="expiry_year" required onchange="updateCardPreview()">
                                                     <option value="">Year</option>
-                                                    <?php for ($i = date('Y'); $i <= date('Y') + 10; $i++): ?>
+                                                    <?php for ($i = date('Y'); $i <= date('Y') + 15; $i++): ?>
                                                     <option value="<?php echo $i; ?>"
                                                         <?php echo (($_POST['expiry_year'] ?? '') == $i) ? 'selected' : ''; ?>>
                                                         <?php echo $i; ?>
@@ -674,9 +843,12 @@ $pageTitle = "Payment Methods - HomewareOnTap";
                                         
                                         <div class="mb-3">
                                             <label for="cvv" class="form-label">CVV <span class="text-danger">*</span></label>
-                                            <input type="text" class="form-control" id="cvv" name="cvv" 
-                                                   placeholder="123" required maxlength="4"
-                                                   value="<?php echo htmlspecialchars($_POST['cvv'] ?? ''); ?>">
+                                            <div class="cvv-input-wrapper">
+                                                <input type="password" class="form-control" id="cvv" name="cvv" 
+                                                    placeholder="123" required maxlength="4" pattern="[0-9]{3,4}"
+                                                    value="<?php echo htmlspecialchars($_POST['cvv'] ?? ''); ?>">
+                                                <i class="fas fa-eye cvv-toggle-icon" id="cvvEyeIcon" onclick="toggleCVVVisibility()"></i>
+                                            </div>
                                             <div class="form-text">3 or 4-digit security code</div>
                                         </div>
                                         
@@ -720,6 +892,16 @@ $pageTitle = "Payment Methods - HomewareOnTap";
 
             // Initialize card preview
             updateCardPreview();
+            
+            // Clear form on success if needed
+            <?php if ($success): ?>
+                document.getElementById('addPaymentMethodForm').reset();
+                updateCardPreview();
+            <?php endif; ?>
+            
+            // Initialize responsive layout handling
+            handleResponsiveLayout();
+            window.addEventListener('resize', handleResponsiveLayout);
         });
         
         // Format card number with spaces
@@ -750,67 +932,169 @@ $pageTitle = "Payment Methods - HomewareOnTap";
             document.getElementById('expiryPreview').textContent = `${expiryMonth}/${expiryYear}`;
         }
         
-        // Auto-detect card type and update icon
+        // Enhanced card type detection for South African cards
         function detectCardType(cardNumber) {
             let cardType = 'credit-card'; // default
+            const cleanCardNumber = cardNumber.replace(/\s+/g, '');
             
-            if (/^4/.test(cardNumber)) {
+            // South African specific card detection (using FA-CC icons)
+            if (/^4/.test(cleanCardNumber)) {
                 cardType = 'visa';
-            } else if (/^5[1-5]/.test(cardNumber)) {
+            } else if (/^5[1-5]/.test(cleanCardNumber)) {
                 cardType = 'mastercard';
-            } else if (/^3[47]/.test(cardNumber)) {
+            } else if (/^3[47]/.test(cleanCardNumber)) {
                 cardType = 'amex';
-            } else if (/^6(?:011|5)/.test(cardNumber)) {
+            } else if (/^(506|507|508|650)/.test(cleanCardNumber)) {
+                cardType = 'diners-club'; // Using diners club icon for Verve-like
+            } else if (/^(62|88)/.test(cleanCardNumber)) {
+                cardType = 'unionpay'; // Assuming an icon exists for unionpay or fallback
+            } else if (/^6/.test(cleanCardNumber)) {
                 cardType = 'discover';
             }
             
             // Update card icon
             const cardIcon = document.getElementById('cardTypeIcon');
-            cardIcon.className = `fab fa-cc-${cardType} card-icon`;
+            // Check for explicit 'cc-' prefix or handle standard 'fa-cc-'
+            if (cardType === 'unionpay') {
+                // Font Awesome 6 uses 'cc-unionpay' if the brand is in the supported set, 
+                // but the original had a custom logic for 'cc-unionpay' with 'fa-'. 
+                // We'll stick to 'fa-cc-' for consistency where possible.
+                cardIcon.className = `fab fa-cc-${cardType} card-icon`;
+            } else if (cardType === 'credit-card') {
+                cardIcon.className = `fas fa-${cardType} card-icon`; // fas for generic
+            } else {
+                cardIcon.className = `fab fa-cc-${cardType} card-icon`; // fab for branded
+            }
+            
+            return cardType;
         }
 
-        // Form validation
+        // Check if card is expired
+        function isCardExpired(month, year) {
+            const currentDate = new Date();
+            const currentYear = currentDate.getFullYear();
+            const currentMonth = currentDate.getMonth() + 1; // JavaScript months are 0-indexed
+            
+            const expiryYearInt = parseInt(year);
+            const expiryMonthInt = parseInt(month);
+
+            if (expiryYearInt < currentYear) {
+                return true;
+            }
+            // Check if year is current year and month is past
+            if (expiryYearInt == currentYear && expiryMonthInt < currentMonth) {
+                return true;
+            }
+            return false;
+        }
+
+        // Show toast notification
+        function showToast(message, type = 'danger') {
+            const toast = document.createElement('div');
+            // Use 'bg-success' for success and 'bg-danger' for danger
+            toast.className = `toast align-items-center text-white bg-${type} border-0`;
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">
+                        <i class="fas fa-exclamation-circle me-2"></i>${message}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            `;
+            document.querySelector('.toast-container').appendChild(toast);
+            new bootstrap.Toast(toast).show();
+        }
+
+        // Enhanced form validation
         document.getElementById('addPaymentMethodForm').addEventListener('submit', function(e) {
             const cardNumber = document.getElementById('card_number').value.replace(/\s+/g, '');
             const cvv = document.getElementById('cvv').value;
             const expiryMonth = document.getElementById('expiry_month').value;
             const expiryYear = document.getElementById('expiry_year').value;
+            const cardHolder = document.getElementById('card_holder').value.trim();
             
             let isValid = true;
             let errorMessage = '';
 
-            // Basic card number validation
-            if (cardNumber.length < 13 || cardNumber.length > 19) {
+            // Card holder validation
+            if (cardHolder.length < 2 || cardHolder.length > 100) {
+                isValid = false;
+                errorMessage = 'Card holder name must be between 2 and 100 characters';
+            }
+            // South African card number validation (13-19 digits)
+            else if (cardNumber.length < 13 || cardNumber.length > 19 || !/^\d+$/.test(cardNumber)) {
                 isValid = false;
                 errorMessage = 'Please enter a valid card number (13-19 digits)';
             }
-            
             // CVV validation
-            if (cvv.length < 3 || cvv.length > 4 || !/^\d+$/.test(cvv)) {
+            else if (cvv.length < 3 || cvv.length > 4 || !/^\d+$/.test(cvv)) {
                 isValid = false;
                 errorMessage = 'Please enter a valid CVV (3-4 digits)';
             }
-
             // Expiry date validation
-            if (!expiryMonth || !expiryYear) {
+            else if (!expiryMonth || !expiryYear) {
                 isValid = false;
                 errorMessage = 'Please select expiry month and year';
+            }
+            // Check if card is not expired
+            else if (isCardExpired(expiryMonth, expiryYear)) {
+                isValid = false;
+                errorMessage = 'Card has expired. Please check the expiry date.';
             }
 
             if (!isValid) {
                 e.preventDefault();
-                alert(errorMessage);
+                showToast(errorMessage, 'danger');
                 return false;
             }
             
             return true;
         });
 
+        // Toggle CVV visibility
+        function toggleCVVVisibility() {
+            const cvvInput = document.getElementById('cvv');
+            const cvvEyeIcon = document.getElementById('cvvEyeIcon');
+            
+            if (cvvInput.type === 'password') {
+                cvvInput.type = 'text';
+                cvvEyeIcon.className = 'fas fa-eye-slash cvv-toggle-icon';
+            } else {
+                cvvInput.type = 'password';
+                cvvEyeIcon.className = 'fas fa-eye cvv-toggle-icon';
+            }
+        }
+
+        // Enhanced responsive behavior
+        function handleResponsiveLayout() {
+            const screenWidth = window.innerWidth;
+            const paymentMethods = document.querySelectorAll('.payment-method-card');
+            
+            if (screenWidth < 768) {
+                // Mobile optimizations
+                paymentMethods.forEach(method => {
+                    const actions = method.querySelector('.payment-method-actions');
+                    if (actions) {
+                        actions.classList.add('mobile-actions');
+                    }
+                });
+            } else {
+                // Desktop
+                paymentMethods.forEach(method => {
+                    const actions = method.querySelector('.payment-method-actions');
+                    if (actions) {
+                        actions.classList.remove('mobile-actions');
+                    }
+                });
+            }
+        }
+
         // Auto-format card number on page load if value exists
         const cardNumberInput = document.getElementById('card_number');
         if (cardNumberInput.value) {
             formatCardNumber(cardNumberInput);
         }
+        
     </script>
 </body>
 </html>

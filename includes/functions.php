@@ -506,6 +506,35 @@ function sanitize_user_input($data) {
 
 // ===================== CART/ORDER HELPER FUNCTIONS =====================
 
+function validateCartItemStock($pdo, $product_id, $quantity) {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT name, stock_quantity, status 
+            FROM products 
+            WHERE id = ? AND status = 1
+        ");
+        $stmt->execute([$product_id]);
+        $product = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$product) {
+            return ['available' => false, 'message' => 'Product not available'];
+        }
+        
+        if ($product['stock_quantity'] < $quantity) {
+            return [
+                'available' => false, 
+                'message' => 'Only ' . $product['stock_quantity'] . ' items available'
+            ];
+        }
+        
+        return ['available' => true, 'message' => 'In stock'];
+        
+    } catch (PDOException $e) {
+        error_log("Validate cart item stock error: " . $e->getMessage());
+        return ['available' => false, 'message' => 'Error checking stock availability'];
+    }
+}
+
 /**
  * Get the current user's or session's cart ID.
  */
@@ -1268,13 +1297,7 @@ function is_admin() {
 }
 
 /**
- * Check if admin is logged in
- */
-function isAdminLoggedIn() {
-    return isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin' && isset($_SESSION['user_id']);
-}
-
-/**
+ 
  * Redirect to another page
  */
 function redirect($url) {
@@ -1742,21 +1765,7 @@ function getUsers($pdo = null, $role = '', $limit = null, $offset = 0) {
 /**
  * Get user by ID
  */
-function getUserById($user_id, $pdo = null) {
-    if ($pdo === null) {
-        $pdo = getDBConnection();
-    }
-    if (!$pdo) return null;
-    
-    try {
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ? AND deleted_at IS NULL");
-        $stmt->execute([$user_id]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        error_log("Get user by ID error: " . $e->getMessage());
-        return null;
-    }
-}
+
 
 /**
  * Update user status

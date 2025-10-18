@@ -49,15 +49,15 @@ $currentAddress = [];
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // Add or update address
     if (isset($_POST['save_address'])) {
-        $firstName = filter_var($_POST['first_name'], FILTER_SANITIZE_STRING);
-        $lastName = filter_var($_POST['last_name'], FILTER_SANITIZE_STRING);
-        $phone = filter_var($_POST['phone'], FILTER_SANITIZE_STRING);
-        $street = filter_var($_POST['street'], FILTER_SANITIZE_STRING);
-        $city = filter_var($_POST['city'], FILTER_SANITIZE_STRING);
-        $province = filter_var($_POST['province'], FILTER_SANITIZE_STRING);
-        $postalCode = filter_var($_POST['postal_code'], FILTER_SANITIZE_STRING);
-        $country = filter_var($_POST['country'], FILTER_SANITIZE_STRING) ?: 'South Africa';
-        $addressType = filter_var($_POST['type'], FILTER_SANITIZE_STRING) ?: 'shipping';
+        $firstName = sanitize_input($_POST['first_name'] ?? '');
+        $lastName = sanitize_input($_POST['last_name'] ?? '');
+        $phone = sanitize_input($_POST['phone'] ?? '');
+        $street = sanitize_input($_POST['street'] ?? '');
+        $city = sanitize_input($_POST['city'] ?? '');
+        $province = sanitize_input($_POST['province'] ?? '');
+        $postalCode = sanitize_input($_POST['postal_code'] ?? '');
+        $country = sanitize_input($_POST['country'] ?? 'South Africa');
+        $addressType = sanitize_input($_POST['type'] ?? 'shipping');
         $isDefault = isset($_POST['is_default']) ? 1 : 0;
         $addressId = isset($_POST['address_id']) ? (int)$_POST['address_id'] : 0;
 

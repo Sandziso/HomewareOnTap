@@ -249,6 +249,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// Function to add order tracking event
+function addOrderTrackingEvent($pdo, $orderId, $status, $message) {
+    try {
+        $stmt = $pdo->prepare("INSERT INTO order_tracking (order_id, status, message, created_at) VALUES (?, ?, ?, NOW())");
+        $stmt->execute([$orderId, $status, $message]);
+        return true;
+    } catch (Exception $e) {
+        error_log("Order tracking event error: " . $e->getMessage());
+        return false;
+    }
+}
+
+// Function to create user notification
+function createUserNotification($pdo, $user_id, $title, $message, $type, $reference_id, $reference_type, $action_url, $action_text, $icon, $priority) {
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO user_notifications 
+            (user_id, title, message, type, reference_id, reference_type, action_url, action_text, icon, priority, is_read, created_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+        ");
+        $stmt->execute([
+            $user_id, 
+            $title, 
+            $message, 
+            $type, 
+            $reference_id, 
+            $reference_type, 
+            $action_url, 
+            $action_text, 
+            $icon, 
+            $priority
+        ]);
+        return true;
+    } catch (Exception $e) {
+        error_log("Create user notification error: " . $e->getMessage());
+        return false;
+    }
+}
+
 // Function to create order (enhanced version)
 function createOrder($pdo, $userId, $shippingAddressId, $billingAddressId, $cartItems, $cartTotal, $shippingCost, $taxAmount, $grandTotal, $paymentMethod, $discountAmount = 0) {
     try {
